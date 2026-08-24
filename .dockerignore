@@ -1,0 +1,31 @@
+# Maven
+target/
+!target/*.jar
+!target/**/classes
+!**/target/*.jar
+!**/target/**/classes
+
+# IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile.backup
+
+# Documentation
+README.md
+HELP.md

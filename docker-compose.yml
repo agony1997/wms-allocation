@@ -1,0 +1,58 @@
+
+services:
+  # =============================================
+  # SQL Server 資料庫
+  # 連線資訊：localhost:1433 / sa / 密碼見 .env 的 DB_PASSWORD（compose 啟動時自動代入）
+  # =============================================
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: wms-allocation-mssql
+    restart: always
+    environment:
+      # 微軟授權條款，必須明確同意容器才會啟動
+      ACCEPT_EULA: "Y"
+      # sa 密碼有複雜度要求：至少 8 碼，含大小寫、數字、符號其中三類，太簡單容器會直接啟動失敗
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD}"
+      # Developer 版：功能等同 Enterprise，僅限開發測試用途
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      # 資料持久化（本專案 ddl-auto=create 每次重建資料表，此 volume 主要保留系統庫設定）
+      - mssql_data:/var/opt/mssql
+    networks:
+      - wms-network
+    healthcheck:
+      # 用 sqlcmd 實際下查詢確認 DB 可服務（-C 信任自簽憑證，工具位於 mssql-tools18）
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '${DB_PASSWORD}' -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      # 給 SQL Server 引擎 20 秒暖機，期間的失敗不計入 retries
+      start_period: 20s
+
+  # =============================================
+  # 一次性初始化：建立 wms_allocation 資料庫
+  # SQL Server 容器不支援像 PostgreSQL 用環境變數（POSTGRES_DB）建庫，
+  # 因此用此容器等 mssql healthy 後執行 CREATE DATABASE，跑完即退出。
+  # docker compose ps 看到此容器 Exited (0) 屬正常狀態。
+  # =============================================
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: wms-allocation-mssql-init
+    depends_on:
+      mssql:
+        condition: service_healthy
+    networks:
+      - wms-network
+    # IF DB_ID(...) IS NULL：重複執行不會出錯（冪等）
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "mssql", "-U", "sa", "-P", "${DB_PASSWORD}", "-C", "-Q", "IF DB_ID('wms_allocation') IS NULL CREATE DATABASE wms_allocation"]
+    restart: "no"
+
+volumes:
+  mssql_data:
+    driver: local
+
+networks:
+  wms-network:
+    driver: bridge
