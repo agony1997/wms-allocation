@@ -2,11 +2,11 @@
 -- Auth 相關資料
 -- =============================================
 
--- auth_role (角色)
+-- auth_role (角色) - 四個角色與 docs/requirements/specification/master/User.md 的角色定義表一致
 INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'ADMIN', N'系統管理員', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
-INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'STOREKEEPER', N'庫務', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'LEADER', N'組長', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'SALES', N'業務員', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
+INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'WAREHOUSE', N'庫務', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 
 -- auth_user (使用者) - 密碼為 BCrypt 加密後的 "password123"
 INSERT INTO auth_user (user_code, email, user_name, password, branch_code, phone, status, created_at, updated_at, created_by, updated_by) VALUES (N'A001', N'admin@example.com', N'管理員', N'$2a$10$aRi0uOtcUAdiokog5Fpq3OT0VmN.eNMhqFmeIMb.buX7uZMA7Whxa', N'1000', N'0912345678', N'ACTIVE', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
@@ -18,7 +18,7 @@ INSERT INTO auth_user (user_code, email, user_name, password, branch_code, phone
 INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'A001', N'1000', N'ADMIN', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'U001', N'1000', N'SALES', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'U002', N'1100', N'LEADER', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
-INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'U003', N'1100', N'STOREKEEPER', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
+INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'U003', N'1100', N'WAREHOUSE', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 
 -- =============================================
 -- Master 主檔資料
@@ -146,12 +146,6 @@ INSERT INTO document_sequence (sequence_type, sequence_date, current_no) VALUES 
 -- =============================================
 -- Receive / Inventory 相關資料
 -- =============================================
-
--- auth_role: 新增 WAREHOUSE 角色
-INSERT INTO auth_role (role_code, role_name, created_at, updated_at, created_by, updated_by) VALUES (N'WAREHOUSE', N'庫務', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
-
--- auth_user_branch_role: 授予 U003 WAREHOUSE 角色
-INSERT INTO auth_user_branch_role (user_code, branch_code, role_code, created_at, updated_at, created_by, updated_by) VALUES (N'U003', N'1100', N'WAREHOUSE', N'2023-01-01 00:00:00', N'2023-01-01 00:00:00', N'SYSTEM', N'SYSTEM');
 
 -- branch_purchase_order (BPO 測試資料)
 INSERT INTO branch_purchase_order (bpo_no, branch_code, factory_code, purchase_date, status, created_at, updated_at, created_by, updated_by) VALUES (N'BPO-20260224-001', N'1000', N'F001', N'2026-02-24', N'PENDING', N'2026-02-24 20:00:00', N'2026-02-24 20:00:00', N'A001', N'A001');
