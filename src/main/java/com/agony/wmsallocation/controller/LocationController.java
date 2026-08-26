@@ -29,10 +29,10 @@ public class LocationController {
         return locationService.findAll();
     }
 
-    @GetMapping("/{branchCode}/{locationCode}")
-    public LocationDto findByBranchCodeAndLocationCode(@PathVariable String branchCode,
-                                                       @PathVariable String locationCode) {
-        return locationService.findByBranchCodeAndLocationCode(branchCode, locationCode);
+    // locationCode 全域唯一，路徑不需要再帶 branchCode
+    @GetMapping("/{locationCode}")
+    public LocationDto findByLocationCode(@PathVariable String locationCode) {
+        return locationService.findByLocationCode(locationCode);
     }
 
 }

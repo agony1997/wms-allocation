@@ -16,7 +16,10 @@
 
 結構重點（不隨欄位改名變動的部分）：
 
-- 主鍵為 `locationCode`（字串代碼）
+- **業務碼為 `locationCode`，全域唯一**（2026-08-26 定案）——不同營業所不得共用同一代碼。
+  `branchCode` 一律由本主檔反查，不由呼叫端指定（例：`SalesReceiveOrderService.receive` 只收 locationCode）。
+  這讓 `AllocationOrderDetail` 這類只帶 `locationCode`、不帶 `branchCode` 的單據明細沒有歧義。
+  與其他主檔（Branch／Product／Customer／Factory／SalesOrganization）一致，皆為單欄 `@Column(unique = true)`
 - 大庫（WAREHOUSE）的 `locationCode` 等於 `branchCode`，`userCode` 為 null
 - 業務員儲位（CAR）的 `userCode` 指向負責業務員
 
@@ -27,7 +30,33 @@
 | 類型 | 說明 | locationCode | userCode |
 |------|------|--------------|--------|
 | WAREHOUSE | 大庫 | = branchCode | null |
-| CAR | 業務員車存 | 業務員儲位代碼 | 業務員 userCode |
+| CAR | 業務員車存 | 營業所碼 + 所內序號 | 業務員 userCode |
+
+---
+
+## 編號規則（2026-08-26 定案）
+
+`locationCode` 為 **4 位數字**，切成 `營業所碼(2) + 所內序號(2)`：
+
+| 區段 | 值 | 用途 |
+|------|-----|------|
+| 所內序號 `00` | `1000`、`1100`、`1200`… | **大庫**，每所恰有一個 |
+| 所內序號 `01`–`99` | `1011`、`1012`…；`1110`、`1111`… | **車存**，所內編號，不要求連續 |
+
+- `branchCode` 即該所的大庫代碼（沿用「大庫 `locationCode` = `branchCode`」）：營業所 10 → `1000`、營業所 11 → `1100`
+- 容量上限：99 個營業所 × 每所 99 個車存儲位。超過須改為 5 位碼，屬編碼規則變更
+- **此為資料層慣例，不做程式驗證**——儲位主檔目前唯讀（無新增／修改端點），沒有需要驗證的入口。
+  日後開放維護端點時再評估是否加格式檢查
+
+### 對照（`data.sql` 現況）
+
+| locationCode | branchCode | locationType | userCode | 說明 |
+|--------------|------------|--------------|--------|------|
+| 1000 | 1000 | WAREHOUSE | null | 營業所 10（信義總部）的大庫 |
+| 1011 | 1000 | CAR | U001 | 王小明的車存，營業所 10 的 11 號 |
+| 1100 | 1100 | WAREHOUSE | null | 營業所 11（北屯）的大庫 |
+| 1110 | 1100 | CAR | U002 | 李小華的車存，營業所 11 的 10 號 |
+| 1200 | 1200 | WAREHOUSE | null | 營業所 12（霧峰，停用中）的大庫 |
 
 ---
 
@@ -38,14 +67,14 @@ Branch (1) ─────< Location (N)
 User (1) ─────< Location (N)   // 一個業務員可有多儲位（不同營業所）
 ```
 
-### 範例
+### 一人多儲位的範例
+
+同一業務員在不同營業所各有一個車存儲位；因 `locationCode` 全域唯一，兩者是不同代碼：
 
 | locationCode | branchCode | locationType | userCode | 說明 |
 |--------------|------------|--------------|--------|------|
-| 1000 | 1000 | WAREHOUSE | null | 營業所 1000 的大庫 |
-| S001 | 1000 | CAR | U001 | 業務員 U001 在營業所 1000 的車存 |
-| S002 | 1000 | CAR | U002 | 業務員 U002 在營業所 1000 的車存 |
-| S003 | 2000 | CAR | U001 | 業務員 U001 在營業所 2000 的車存 |
+| 1011 | 1000 | CAR | U001 | U001 在營業所 10 的車存 |
+| 1112 | 1100 | CAR | U001 | 同一個 U001 在營業所 11 的車存 |
 
 ---
 

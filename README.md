@@ -18,7 +18,7 @@
 |----|------|:----:|
 | **訂貨** | 業務員訂貨（SPO）→ 門市彙總（BPF/BPO）→ 工廠出貨（FDO）→ 收貨入庫 | ✅ |
 | **配貨** | 待配明細撈取 → FEFO × 優先度分配 → 建配貨單（AO/AOD）＋ 扣庫存 ＋ 明細轉態，單一交易 | ✅ |
-| **出庫** | 領貨單（SRO/SROD）：庫存由大庫移轉至業務員車存 | 🚧 僅 Entity |
+| **出庫** | 領貨單（SRO/SROD）：待領明細一次領完，AOD 轉態＋車存入庫，並同步 AO 聚合狀態 | ✅ |
 
 **暫緩（規格已寫、不在當前實作範疇）**：客戶銷售與送貨簽收（CPO/SDO）、寄庫退庫與結帳（SKR/SRR/BRO）。規格保留在 `docs/requirements/specification/` 下，Entity 未建；`InventoryService` 已備妥對應的庫存異動方法（`sell`／`customerReturn`／`keep` 等）。
 
@@ -52,7 +52,7 @@ cd frontend && npm run dev      # 前端
 
 | 階段 | 目標 | 完成定義 |
 |------|------|---------|
-| **1. 補完主線** | SRO 領貨（AOD → SROD、大庫 → 車存）、`@RequireRole` 上到凍結／配貨端點 | 訂貨→配貨→領貨一條龍整合測試綠燈 |
+| **1. 補完主線** | ~~SRO 領貨~~（已完成）、資料級授權（業務員只能動自己的單）、`@RequireRole` 上到凍結／配貨端點 | 訂貨→配貨→領貨一條龍整合測試綠燈 |
 | **2. 最小前端** | Branch 頁手寫，其餘代工；Element Plus 導入 | demo 主路徑可用滑鼠走完，401/409 體驗正確 |
 | **3. 一鍵部署** | Docker multi-stage（前後端同 image）、non-root、healthcheck；Jenkins 前端 build stage | `docker-compose up` 一鍵可用 |
 | **4. 驗證與觀測** | 併發整合測試（Testcontainers 真並發）、Redis INCR 版取號＋兩方案壓測、效能 baseline → 改 → 再測 | 帶數據的壓測報告；沒有 baseline 的優化視為沒做 |

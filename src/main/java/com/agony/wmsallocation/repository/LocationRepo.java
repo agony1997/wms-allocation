@@ -15,7 +15,8 @@ public interface LocationRepo extends JpaRepository<Location, Integer> {
 
     List<Location> findByBranchCode(String branchCode);
 
-    Optional<Location> findByBranchCodeAndLocationCode(String branchCode, String locationCode);
+    /** locationCode 全域唯一，單鍵即可定位；branchCode 由本方法反查取得，不由呼叫端指定。 */
+    Optional<Location> findByLocationCode(String locationCode);
 
     List<Location> findByStatus(ActiveStatus status);
 

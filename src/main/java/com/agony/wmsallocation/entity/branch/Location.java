@@ -13,7 +13,7 @@ import org.hibernate.annotations.Nationalized;
  * 儲位主檔：庫存存放位置，分大庫（WAREHOUSE）與業務員車存（CAR）兩類。
  *
  * <p>業務規則詳見 {@code docs/requirements/specification/master/Location.md}。
- * <p>唯一鍵：(branchCode, locationCode)
+ * <p>業務碼：{@code locationCode}（**全域唯一**，非營業所內唯一）
  */
 @Getter
 @Setter
@@ -21,7 +21,7 @@ import org.hibernate.annotations.Nationalized;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 @Entity
-@Table(name = "location", uniqueConstraints = @UniqueConstraint(columnNames = {"branch_code", "location_code"}))
+@Table(name = "location")
 public class Location extends AuditEntity {
 
     @Id
@@ -29,10 +29,16 @@ public class Location extends AuditEntity {
     @Column(nullable = false)
     private Integer id;
 
-    /** WAREHOUSE 時 = branchCode；CAR 時為業務員儲位代碼（如 S001）。 */
+    /**
+     * 儲位代碼，**全域唯一**——不同營業所不得共用同一代碼。
+     *
+     * <p>如此 {@code AllocationOrderDetail} 這類只帶 locationCode、不帶 branchCode 的
+     * 單據明細才不會有歧義；branchCode 一律由本主檔反查，不由呼叫端指定。
+     * 編號規則見 {@code Location.md}。
+     */
     @NotNull
     @Size(max = 20)
-    @Column(length = 20, nullable = false)
+    @Column(unique = true, length = 20, nullable = false)
     private String locationCode;
 
     @Nationalized

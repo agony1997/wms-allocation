@@ -41,11 +41,10 @@ public class LocationService {
                 .toList();
     }
 
-    public LocationDto findByBranchCodeAndLocationCode(String branchCode, String locationCode) {
-        return locationRepo.findByBranchCodeAndLocationCode(branchCode, locationCode)
+    public LocationDto findByLocationCode(String locationCode) {
+        return locationRepo.findByLocationCode(locationCode)
                 .map(locationMapper::toDto)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "找不到儲位：branchCode=" + branchCode + ", locationCode=" + locationCode));
+                .orElseThrow(() -> new ResourceNotFoundException("找不到儲位：locationCode=" + locationCode));
     }
 
 }
