@@ -15,8 +15,6 @@ public interface AuthUserRepo extends JpaRepository<AuthUser, Integer> {
 
     boolean existsByUserCode(String userCode);
 
-    boolean existsByBranchCode(String branchCode);
-
     List<AuthUser> findByStatus(ActiveStatus status);
 
 }

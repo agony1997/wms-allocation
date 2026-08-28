@@ -9,7 +9,7 @@ import com.agony.wmsallocation.exception.DuplicateResourceException;
 import com.agony.wmsallocation.exception.ResourceInUseException;
 import com.agony.wmsallocation.exception.ResourceNotFoundException;
 import com.agony.wmsallocation.mapper.BranchMapper;
-import com.agony.wmsallocation.repository.AuthUserRepo;
+import com.agony.wmsallocation.repository.AuthUserBranchRoleRepo;
 import com.agony.wmsallocation.repository.BranchRepo;
 import com.agony.wmsallocation.repository.LocationRepo;
 import org.junit.jupiter.api.DisplayName;
@@ -41,7 +41,7 @@ class BranchServiceTest {
     private LocationRepo locationRepo;
 
     @Mock
-    private AuthUserRepo authUserRepo;
+    private AuthUserBranchRoleRepo authUserBranchRoleRepo;
 
     @InjectMocks
     private BranchService branchService;
@@ -226,7 +226,8 @@ class BranchServiceTest {
         Branch existing = stubBranch("B001", ActiveStatus.ACTIVE);
         when(branchRepo.findByBranchCode("B001")).thenReturn(Optional.of(existing));
         when(locationRepo.existsByBranchCode("B001")).thenReturn(false);
-        when(authUserRepo.existsByBranchCode("B001")).thenReturn(true);
+        // 人員歸屬查角色關聯表：使用者本身不掛營業所
+        when(authUserBranchRoleRepo.existsByBranchCode("B001")).thenReturn(true);
 
         assertThatThrownBy(() -> branchService.delete("B001"))
                 .isInstanceOf(ResourceInUseException.class)

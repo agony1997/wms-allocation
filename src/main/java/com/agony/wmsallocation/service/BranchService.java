@@ -10,7 +10,7 @@ import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.exception.ResourceInUseException;
 import com.agony.wmsallocation.exception.ResourceNotFoundException;
 import com.agony.wmsallocation.mapper.BranchMapper;
-import com.agony.wmsallocation.repository.AuthUserRepo;
+import com.agony.wmsallocation.repository.AuthUserBranchRoleRepo;
 import com.agony.wmsallocation.repository.BranchRepo;
 import com.agony.wmsallocation.repository.LocationRepo;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +26,7 @@ public class BranchService {
     private final BranchRepo branchRepo;
     private final BranchMapper branchMapper;
     private final LocationRepo locationRepo;
-    private final AuthUserRepo authUserRepo;
+    private final AuthUserBranchRoleRepo authUserBranchRoleRepo;
 
     public List<BranchDto> findAll() {
         return branchRepo.findAll().stream()
@@ -83,7 +83,8 @@ public class BranchService {
 
         List<String> dependents = new ArrayList<>();
         if (locationRepo.existsByBranchCode(branchCode)) dependents.add("儲位");
-        if (authUserRepo.existsByBranchCode(branchCode)) dependents.add("人員");
+        // 查角色關聯表而非 AuthUser：使用者本身不掛營業所，「誰隸屬這個所」的真相只在關聯表
+        if (authUserBranchRoleRepo.existsByBranchCode(branchCode)) dependents.add("人員");
         // ponytail: 目前僅檢查主檔下轄（儲位/人員）；庫存與各類單據等營運資料待該模組成熟後再納入
         if (!dependents.isEmpty()) {
             throw new ResourceInUseException(

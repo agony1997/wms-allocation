@@ -14,9 +14,25 @@ import java.lang.annotation.Target;
 // 日後要支援類別層級，須同時改攔截器（補讀 handlerMethod.getBeanType() 上的標註）。
 @Target(ElementType.METHOD)
 // @Retention RUNTIME：標註資訊要保留到執行期，攔截器才能在跑的時候用反射讀到它。
-// （預設的 CLASS 只留到位元碼、執行期讀不到）
+//（預設的 CLASS 只留到位元碼、執行期讀不到）
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RequireRole {
-    // 標註的值，寫成 @RequireRole("MANAGER")。目前只支援單一角色、精確比對。
-    String value(); // 用來標示需要的角色，例如 "MANAGER"
+
+    /**
+     * 需要的角色，語意為 <b>OR</b>——具備其中任一個即放行。
+     * 寫成 {@code @RequireRole({"LEADER", "ADMIN"})}；單一角色可省略大括號。
+     *
+     * <p>用陣列而非單一字串，是因為權限矩陣（User.md）每一列都是「某角色<b>或</b> ADMIN」，
+     * 單值型別連寫都寫不出來。
+     *
+     * <p><b>判定語意為「在任一營業所具備該角色」，不比對本次操作的營業所。</b>
+     * 攔截器拿不到本次要動的營業所——它可能在 query、在 body、或只存在於待操作的單據上
+     * （例如領貨只帶 locationCode，須查 Location 主檔才知道所屬營業所）。
+     * 因此本標註只回答「他是不是這個工種」，「他能不能動這筆資料」一律由 Service 層負責。
+     *
+     * <p>這代表 <b>Service 層的資料範圍檢查是必要的，不是加分項</b>：
+     * 在任一營業所具備某角色的人，打得到所有該角色端點的 Controller 門口。
+     * 完整理由與端點盤點見 {@code docs/requirements/specification/master/User.md}「資料範圍授權」。
+     */
+    String[] value();
 }

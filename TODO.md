@@ -10,7 +10,8 @@
 
 ## 現在在哪
 
-主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成，測試 193 綠。
+主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步中的**第 1、2 步已完成**
+（多角色改造 + 移除 `AuthUser.branchCode`），測試 196 綠。
 
 ```
 07df060 docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時效
@@ -18,17 +19,23 @@ b92903b feat: 實作業務領貨單（SRO），補完訂貨→配貨→領貨主
 d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 ```
 
-目前卡在**授權**這條線上，分四步，做完才輪到前端。
+目前在**授權**這條線上，分四步，做完才輪到前端。**下一步是第 3 步「掛 `@RequireRole` 到端點」。**
 
 > 跑測試：`./mvnw.cmd test`
-> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 191 支照跑。
+> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 196 支照跑。
 
 ---
 
-## 下一步：多角色改造 ← **你寫這個**
+## ✅ 已完成：多角色改造（2026-08-28）
 
-**為什麼是你寫**：這是專案裡第一個授權相關的實作。依協作紀律，每一種新東西的第一個自己寫，
-之後的才交給 AI——沒寫過就審不出 AI 產出哪裡不對。
+下方保留當時的問題描述與決策，是為了日後回頭看「為什麼長這樣」；
+**要改動這一塊前先讀完，其中好幾條是踩過坑才定下來的**。
+
+實際落地的檔案：`JwtUtil`（簽發／解析 `branchRoles`）、`UserContextHolder`（深層不可變 map +
+`hasRole`）、`RequireRole`（值改陣列、OR 語意）、`JwtInterceptor`（任一營業所比對）、
+`AuthService`（`resolveBranchRoles` + 無角色擋登入）、`LoginResponse`（四欄）、
+`ErrorCode`＋`error-codes.md`（`AUTH_NO_ROLE_ASSIGNED`）、`AuthServiceTest`（7 支）、
+移除 `AuthUser.branchCode` 連帶六處、前端 `stores/auth.js`＋`HomeView.vue`。
 
 ### 問題
 
@@ -48,30 +55,81 @@ d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 - **token 塞 `branchRoles`**：`claim("branchRoles", {"1000":["SALES","LEADER"], "1100":["WAREHOUSE"]})`
 - **不每請求查 DB**：角色歸屬是 HR 層級資料，一年變動數次，不值得用每請求成本換即時性
 - **撤銷延遲 8 小時是已接受的缺口**，現在不做 refresh、不做撤銷清單
-- 完整理由與升級階梯見 `docs/requirements/specification/master/User.md` 的
-  「Token 攜帶角色與撤銷時效」段
+- **`resolveRole` 回傳 `Map<String, Set<String>>`，不做 DTO**（2026-08-28）——
+  claim 與 `UserContextHolder` 兩端都是 map，中間插一層 `List<UserBranchRolesDto>`
+  會變成三次形狀轉換；且它從未離開後端，不符合 DTO「跨層邊界」的定位。
+  方法一併改名 `resolveBranchRoles`（回傳多筆卻叫單數會誤導）
+- **`@RequireRole` 採「任一營業所」語意**（2026-08-28），營業所判定全部落在 Service 層
+- **無角色關聯的帳號不得登入**（2026-08-28），新增 `AUTH_NO_ROLE_ASSIGNED`(403)
+- **`LoginResponse` 移除單值 `role`**，改為 `branchRoles`；**不加** `defaultBranchCode`
+  或任何單值營業所欄位（2026-08-28）
+- **系統無「主要營業所」概念**，`AuthUser.branchCode` 移除（2026-08-28）——見下方獨立區塊
+- 完整理由見 `docs/requirements/specification/master/User.md` 的
+  「資料結構」「資料範圍授權」「Token 攜帶角色與撤銷時效」「登入契約與前端營業所選擇」四段
 
-### 要做什麼
+### 當時要做什麼（六項全部完成）
 
 1. `JwtUtil` 簽發／解析 `branchRoles`
-2. `AuthService.resolveRole()` → 改為回傳全部角色關聯（不再挑一個）
-3. `UserContextHolder` → `userCode` + `Map<branchCode, Set<String>>`，
-   並提供類似 `hasRole(branchCode, role)` 的查詢方法
-4. `JwtInterceptor` 改為多角色比對
-5. `LoginResponse` 的 `role` 欄位要不要跟著改（前端 `stores/auth.js` 有讀）
+2. `AuthService.resolveRole()` → `resolveBranchRoles()`，回傳全部角色關聯（不再挑一個）；
+   結果為空即拋 `AUTH_NO_ROLE_ASSIGNED`
+3. 新增 `AUTH_NO_ROLE_ASSIGNED`(403) 到 `ErrorCode`，**同一 commit 內**同步
+   `docs/api/error-codes.md`（鐵律 2）
+4. `UserContextHolder` → `userCode` + `Map<branchCode, Set<String>>`，
+   並提供 `hasRole(branchCode, role)` 查詢方法
+5. `JwtInterceptor` 改為多角色比對（`@RequireRole` 值改陣列、語意 OR）
+6. `LoginResponse` 改為 `{token, userCode, userName, branchRoles}`（四欄，**無** `defaultBranchCode`）；
+   前端 `stores/auth.js`（三處）＋ `HomeView.vue`（一行）跟著改
 
-### ⚠ 陷阱
+### 同一批：移除 `AuthUser.branchCode`（2026-08-28 完成）
 
-`UserContextHolder` 改成物件後，**`clear()` 一定要跟著改**。
+原本的想法從來沒有「主要營業所」，個人的營業所歸屬就是「在哪些所有角色／有儲位」——
+`AuthUserBranchRole` 與 `Location`（自帶 `branchCode` + `userCode`）已完整表達，
+`AuthUser.branchCode` 是牴觸該模型的殘留欄位，且與那兩張表之間無 FK。
+完整理由見 `User.md`「資料結構」段。
+
+**`data.sql` 已改（四筆 `auth_user` INSERT 移除該欄）**，所以下列改動必須**與它同一個 commit**——
+欄位是 `nullable = false` 且無 DB 預設值，只改一邊會讓應用程式啟動時 INSERT 失敗。
+
+| # | 改動 | 備註 |
+|---|------|------|
+| 1 | `AuthUser` 刪 `branchCode` 欄位 | 連同 javadoc |
+| 2 | `AuthUserRepo.existsByBranchCode` 刪，改在 `AuthUserBranchRoleRepo` 新增同名方法 | **你寫**——第一次跨到關聯表查引用 |
+| 3 | `BranchService.java:86` 的「人員」引用檢查改查關聯表 | 見下，這是修 bug |
+| 4 | `BranchServiceTest:229` 對應改 mock | 1 行 |
+| 5 | `UserDto.branchCode` 刪；若查詢要回營業所，改為 `List<String>` 從關聯表組 | 決定要不要回 |
+
+> **第 3 點是真 bug，不只是搬家**：現行檢查查的是 `AuthUser.branchCode`，
+> 會漏掉「在該所有角色、但 `branchCode` 是別處」的人——刪掉營業所後留下孤兒 `AuthUserBranchRole`。
+> 改查關聯表才擋得住。`location` 那一項（`BranchService:85`）本來就是對的，不用動。
+
+### ⚠ 三個陷阱
+
+**① `UserContextHolder` 改成物件後，`clear()` 一定要跟著改。**
 `JwtInterceptor.afterCompletion` 的清理漏了的話，Tomcat 執行緒重用時
 會把上一個請求的權限帶給下一個人——這比記憶體洩漏嚴重得多。
 （那支檔案裡已有註解解釋為什麼 `setUserCode` 要等到權限檢查通過後才寫，一併看。）
 
+**② 放進 `ThreadLocal` 的 map 必須不可變**（`Map.copyOf`）。
+現在存 `String` 天生不可變所以沒事；換成 map 之後，Service 層任何一處都能往自己的權限裡塞東西。
+
+**③ JWT claim 的往返會把 `Set` 變成 `List`。**
+`claims.get("branchRoles", Map.class)` 拿回來的是 `LinkedHashMap<String, ArrayList<String>>`；
+泛型已被抹除，直接 cast 成 `Map<String, Set<String>>` 會編譯過、執行不炸
+（`List` 也有 `contains`），但型別是謊話。解析端要明確重建 `Set`，這是 `JwtUtil` 的責任。
+
 ### 完成的定義
 
 - token 解出來能回答「這個人在營業所 X 有沒有角色 Y」
-- `AuthServiceTest` 更新，且至少有一筆「一人在同一營業所有兩個角色」的案例
+- `AuthServiceTest` 更新——注意 `login_whenValid_shouldReturnTokenAndPrimaryBranchRole`
+  測的正是要拆掉的「挑一個」行為，整支重寫而非改參數。新案例至少三筆：
+  同一營業所兩個角色、跨營業所不同角色、無任何角色關聯應拋 `AUTH_NO_ROLE_ASSIGNED`
+- 比對用 `Set` 比對，別比 token 字串——`HashSet` 序列化順序不保證，那種測試會偶發紅
+- `BranchServiceTest` 的營業所刪除案例仍綠（引用檢查換表後，mock 對象跟著換）
 - `./mvnw.cmd test` 全綠
+
+> **未決**：`data.sql` 四個使用者目前都是單所單角，多所／同所多角一個案例都沒有。
+> 單元測試用 mock 不受影響，但手動 demo 測不到這次改造的重點。
+> 要補的話會動到 `location` 資料，進而影響配貨 demo 的數字——做前端時再決定。
 
 ---
 
@@ -100,6 +158,20 @@ d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 
 現況是 19 支端點的 branchCode／locationCode 完全由呼叫端自由指定，
 任何登入者都能讀別的營業所、別的業務員的單——這是 IDOR，是洞不是缺功能。
+
+**這一步是必要的，不是加分項**——因為第 3 步的 `@RequireRole` 只判定「在任一營業所有此角色」，
+營業所比對完全不在攔截器（2026-08-28 定案，理由與端點盤點見 `User.md`）。
+
+收斂成兩個入口，別每支 Service 各寫各的 `if`：
+
+- `assertBranchAccess(branchCode, 需要的角色)`——驗 branchCode 在 token 的 keys 裡，
+  **且該所底下有需要的角色**（第二點最容易漏，漏了等於只驗了一半）
+- `assertLocationOwnership(locationCode)`——驗 `Location.userCode` = 當前登入者
+- **ADMIN 一律放行，兩者都不比對**（全系統唯一的角色特例，見 `User.md`）。
+  前端選單也要對應——ADMIN 列全部營業所，須另呼叫 `GET /api/branches`。
+  兩邊要一起做：只做前端會讓 ADMIN 選了卻被擋，只做後端則他選不到
+
+每支需要範圍檢查的 Service 方法，都要有一支「別所／別人的儲位打進來要被擋」的測試。
 
 ---
 
@@ -143,7 +215,10 @@ d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 2. **授權**（本文件上半部）← 現在在這
 3. **前端 demo 主路徑**——最大一塊。Element Plus + 五頁：訂貨／彙總凍結／收貨／配貨／領貨。
    重點只有一個：**配貨結果頁要讓演算法看得見**（S001 因優先度 1 先拿走效期最近那批，
-   S002 只分到剩下的，數字和批號都要在畫面上）
+   S002 只分到剩下的，數字和批號都要在畫面上）。
+   每頁都要有**營業所欄位**（已定案：每頁各自的欄位，不做全域切換；一律顯示並自動帶入，
+   預設取本頁合法集合中排序最小者，單一選項時鎖定唯讀）——四條規則見
+   `User.md`「登入契約與前端營業所選擇」段，其中「選單只列具備本頁所需角色的營業所」最易漏
 4. **一鍵部署**——multi-stage Dockerfile（前後端同 image）、compose 加 app service、healthcheck
 5. **README 放一張 gif**——這一張圖的效益大於後面十篇 ADR
 

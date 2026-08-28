@@ -9,7 +9,11 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Date;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 // JWT 的簽發與驗證工具。JWT 結構為 Header.Payload.Signature 三段（以 . 分隔）：
 // Header/Payload 只是 Base64 編碼（可被任何人解讀，不能放密碼），
@@ -28,12 +32,15 @@ public class JwtUtil {
     }
 
     // 登入成功後呼叫：把使用者身份打包成一顆已簽章的 token 字串。
-    public String generateToken(String userCode, String role) {
+    // branchRoles 形狀為 {branchCode: [roleCode...]}，讓攔截器與 Service 層共用同一份權限來源。
+    // 刻意不每請求查 DB：角色歸屬是 HR 層級資料，一年變動數次，不值得用每請求成本換即時性；
+    // 代價是角色異動的生效延遲 = token 壽命（8 小時），此缺口已接受，理由見 User.md。
+    public String generateToken(String userCode, Map<String, Set<String>> branchRoles) {
         long expirationTimeMs = 1000 * 60 * 60 * 8; // 8 小時（毫秒）
 
         return Jwts.builder()
                 .subject(userCode)                 // sub claim：token 的主體，這裡放登入者代號
-                .claim("role", role)         // 自訂 claim：角色，之後攔截器據此做權限判斷
+                .claim("branchRoles", branchRoles)
                 .issuedAt(new Date())              // iat claim：簽發時間
                 .expiration(new Date(System.currentTimeMillis() + expirationTimeMs)) // exp claim：過期時間
                 .signWith(getSecretKey())          // 用密鑰簽章（產生第三段 Signature）
@@ -54,5 +61,27 @@ public class JwtUtil {
             // 統一回 null，由呼叫端決定回 401
             return null; // Token 無效或已過期
         }
+    }
+
+    // 從已驗證的 claims 取出 branchRoles。
+    //
+    // 為何不能直接 cast：簽發時放進去的是 Map<String, Set<String>>，但 JSON 沒有 Set 這個型別，
+    // 解析回來會是 Map<String, List<String>>（LinkedHashMap 裝 ArrayList）。
+    // 泛型在執行期已被抹除，硬 cast 成 Map<String, Set<String>> 會編譯過、執行也不會炸
+    //（List 同樣有 contains），但型別是假的——直到有人依賴 Set 的去重或 equals 才會爆，
+    // 且爆的地方離這裡很遠。所以在邊界一次轉乾淨，讓型別不說謊。
+    //
+    // 回傳不可變 map；claim 不存在（例如改版前簽發的舊 token）時回空 map，
+    // 讓持有者通過驗簽但無任何角色，撞到 @RequireRole 就 403，行為與「無權限」一致。
+    @SuppressWarnings("unchecked")
+    public Map<String, Set<String>> extractBranchRoles(Claims claims) {
+        Map<String, ?> raw = claims.get("branchRoles", Map.class);
+        if (raw == null) {
+            return Map.of();
+        }
+        return raw.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Map.Entry::getKey,
+                        entry -> Set.copyOf((Collection<String>) entry.getValue())));
     }
 }

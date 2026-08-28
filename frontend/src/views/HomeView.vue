@@ -9,8 +9,10 @@
       <tbody>
         <tr><th>使用者代號</th><td>{{ authStore.userCode }}</td></tr>
         <tr><th>姓名</th><td>{{ authStore.userName }}</td></tr>
-        <tr><th>角色</th><td>{{ authStore.role }}</td></tr>
-        <tr><th>營業所</th><td>{{ authStore.branchCode }}</td></tr>
+        <tr v-for="(roles, branchCode) in authStore.branchRoles" :key="branchCode">
+          <th>營業所 {{ branchCode }}</th>
+          <td>{{ roles.join('、') }}</td>
+        </tr>
       </tbody>
     </table>
 

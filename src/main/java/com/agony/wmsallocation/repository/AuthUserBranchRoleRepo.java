@@ -11,4 +11,12 @@ public interface AuthUserBranchRoleRepo extends JpaRepository<AuthUserBranchRole
 
     List<AuthUserBranchRole> findByUserCode(String userCode);
 
+    /**
+     * 該營業所底下是否還有人員（角色關聯）。營業所刪除前的引用檢查用。
+     *
+     * <p>不可改查 {@code AuthUser}——使用者本身已不掛營業所欄位，
+     * 「誰隸屬這個所」的唯一真相就在本表。
+     */
+    boolean existsByBranchCode(String branchCode);
+
 }

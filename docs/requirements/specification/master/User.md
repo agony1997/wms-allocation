@@ -20,6 +20,18 @@
 - 主鍵為 `userCode`（員工編號，字串）
 - 角色透過 `AuthUserBranchRole` 三向關聯（使用者 × 營業所 × 角色），唯一鍵為 (userCode, branchCode, roleCode)
 - 一個業務員可在多個營業所扮演不同角色，並持有對應儲位
+- **`AuthUser` 不掛營業所欄位，系統無「主要營業所」概念**（2026-08-28 定案）。
+  歸屬有且只有兩個來源：角色歸屬看 `AuthUserBranchRole`、儲位歸屬看 `Location`
+  （其自帶 `branchCode` 與 `userCode`）。兩者是各自獨立的事實——
+  在某所有角色卻無儲位、或有儲位卻無角色，都是合法狀態
+
+> **為何刪掉 `AuthUser.branchCode`**：該欄位曾存在（javadoc 稱「主要所屬營業所」，預設 `"9999"`），
+> 但從未進入本規格，也無任何業務邏輯讀它——唯一的使用者是舊版 `AuthService.resolveRole()`
+> 的「優先取主要營業所的角色」，該邏輯已隨多角色改造移除。
+> 它與上述兩個來源之間無 FK、無一致性保證，留著只會製造矛盾的第三個真相。
+>
+> 連帶影響：**營業所刪除前的「人員」引用檢查須查 `AuthUserBranchRole`**，不可查 `AuthUser`——
+> 後者會漏掉「在該所有角色」的人，刪除後留下孤兒角色關聯。
 
 ---
 
@@ -118,8 +130,68 @@ User U001
 
 - LEADER 可代業務員操作該所任一儲位——依 [SalesPurchase.md](../purchase/SalesPurchase.md)「營業員的上司有權限可代為訂貨」
 - 無範圍參數的查詢端點（如列出全部庫存、全部使用者）須**依身分過濾**，不可直接回全公司資料
-- 檢查落在 **Service 層**（Controller 只有參數、沒有資料，判斷儲位歸屬需查主檔）；
-  功能授權留在攔截器的 `@RequireRole`，兩層分工
+
+### 三層分工（2026-08-28 定案）
+
+| 層 | 擋什麼 | 依據 | 是否為安全機制 |
+|----|--------|------|----------------|
+| 前端路由／按鈕顯示 | 頁面看不看得到 | `LoginResponse` 的 `branchRoles` | ❌ **純 UX**，帶著 token 用 curl 可完全繞過 |
+| 攔截器 `@RequireRole` | API 打不打得到 | token 的 `branchRoles` | ✅ |
+| Service 層範圍檢查 | 這筆資料動不動得了 | token + 查主檔／單據 | ✅ |
+
+第一層與第二層讀同一份資料卻**不等價**——前端藏起來的按鈕，直接打 API 一樣打得到。
+第一層存在的唯一理由是不要讓使用者按下去才被拒絕。
+
+### `@RequireRole` 採「任一營業所」語意（2026-08-28 定案）
+
+`@RequireRole("LEADER")` 判定的是「此人**在任一營業所**具備 LEADER」，
+**不**判定「在本次操作的營業所具備 LEADER」。後者一律由 Service 層負責。
+
+標註值改為陣列、語意為 OR（`@RequireRole({"LEADER", "ADMIN"})`）——
+權限矩陣每一列都是「某角色**或** ADMIN」，單值型別連寫都寫不出來。
+
+**為何不在攔截器一次驗完**——盤點矩陣涉及的端點，本次操作的營業所只有一半讀得到：
+
+| 功能 | 端點 | branch 來源 | 攔截器讀得到 |
+|------|------|------------|-------------|
+| 凍結／解除凍結／確認 BPF | `POST /api/branch-purchases/actions/*` | `@RequestParam branchCode` | ✅ |
+| 調整 confirmedQty | `PUT /api/branch-purchases/adjust` | `@RequestParam branchCode` | ✅ |
+| 彙總 BPO | `POST /api/branch-purchase-orders/actions/aggregate` | `@RequestParam branchCode` | ✅ |
+| 配貨 AO | `POST /api/allocation-orders/actions/allocate` | `@RequestParam branchCode` | ✅ |
+| 建立 SPO | `PUT /api/sales-purchase-orders` | body 的 `SavePurchaseRequest.branchCode` | ❌ 需讀 body |
+| 收貨 FDO | `POST /api/factory-delivery-orders/actions/receive` | body 僅 `fdoNo`，須查單據 | ❌ |
+| 領貨 SRO | `POST /api/sales-receive-orders/actions/receive` | 僅 `locationCode`，須查 Location 主檔 | ❌ |
+| Mock 出貨 FDO | `POST /api/factory-delivery-orders/actions/ship` | 僅 `bpoNo`，須查 BPO | ❌（ADMIN only，無妨） |
+
+理由三條：
+
+1. **不均勻的保護比沒有更危險**。四支讀不到，其中三支是主線動作。一旦攔截器「有時候」做了
+   營業所判定，後續開發者會假設它做完了——而該假設恰好在沒做的那幾支上是錯的。
+2. **最需要它的地方它答不出來**。SALES 的範圍是「自己擁有的儲位」（見上表），不是營業所。
+   領貨 SRO 就算反查出 branchCode、確認他在該所是 SALES，仍答不出「這個儲位是不是他的」——
+   同所的另一位業務員完全滿足前者，卻不能領別人儲位的貨。
+3. **錯誤品質**。攔截器擋 → 裸 403 無 body；Service 擋 → `BusinessException` + ErrorCode + 訊息。
+
+**已接受的代價**：在任一營業所具備某角色的人，打得到所有該角色端點的 Controller 門口，
+唯一防線是 Service 層有寫檢查。因此該檢查是**必要**而非加分項。
+
+### Service 層的兩個檢查入口
+
+不要每支 Service 各寫各的 `if`——漏一支就是越權。收斂為兩個方法：
+
+| 方法 | 用於 | 驗什麼 |
+|------|------|--------|
+| `assertBranchAccess(branchCode, 需要的角色)` | LEADER／WAREHOUSE 的營業所級操作 | ① `branchCode` ∈ token `branchRoles` 的 keys；② **且該 key 底下有需要的角色** |
+| `assertLocationOwnership(locationCode)` | SALES 的儲位級操作（訂貨、領貨） | `Location.userCode` = 當前登入者 |
+
+第 ② 點不可省。只驗 ① 的話，「在 1000 是 SALES、在 1100 是 WAREHOUSE」的人送
+`branchCode=1000` 呼叫配貨會通過——他確實「有」1000 的權限，只是不是配貨的權限。
+
+**ADMIN 一律放行，兩個方法都不比對**——依上表其資料範圍為「不限」。
+這是全系統唯一的角色特例，前端選單也須對應（見「前端營業所選擇器」段）。
+
+每支需要範圍檢查的 Service 方法，都要有一支「別所／別人的儲位打進來要被擋」的測試，
+以及一支「ADMIN 打進來要放行」的測試。
 
 ---
 
@@ -178,6 +250,74 @@ token 生命週期（目前 **8 小時**）。授予延遲無害（重新登入�
 
 ---
 
+## 登入契約與前端營業所選擇（2026-08-28 定案）
+
+### 無角色關聯的使用者不得登入
+
+`AuthUserBranchRole` 一筆都沒有的帳號，`AuthService.login` 直接拒絕，
+拋 `AUTH_NO_ROLE_ASSIGNED`（403）。
+
+**為何不放行**：放行的話他拿得到 token，但空的 `branchRoles` 讓每支 `@RequireRole` 端點都回
+403、前端營業所選單是空的——登入後無事可做的死路。在登入處一次講清楚，比讓他在五個頁面
+各撞一次 403 誠實。
+
+**為何不給預設角色**：那是在程式裡發權限，`AuthUserBranchRole` 查不到這筆授權，
+日後稽核「誰有什麼權限」時對不起來。權限只能有資料庫這一個來源。
+
+### `LoginResponse` 契約
+
+```
+{ token, userCode, userName, branchRoles }
+```
+
+- `branchRoles`：`Map<branchCode, List<roleCode>>`，與 token claim 同一份資料
+- 原本的單值 `role` 欄位移除——一人多角時它必然是謊話
+- **沒有** `defaultBranchCode` 或任何單值營業所欄位。使用者的營業所歸屬只有
+  `branchRoles` 這一個來源，見「資料結構」段：系統無「主要營業所」概念
+
+### 前端營業所選擇器
+
+多營業所人員需在頁面上指定「本次操作哪個營業所」，該值即各端點的 `branchCode` 參數。
+
+**採每頁各自的營業所欄位**（2026-08-28 定案），不做全域「當前作業營業所」。
+
+1. **選單列「在該所具備本頁所需角色」的營業所**；ADMIN 列**全部營業所**（見下）。
+   正常資料下這個過濾是 no-op——一個人跨營業所通常擔任同一職務（見「範例：多營業所角色」：
+   U001 跨所都是業務線、U002 跨所都是庫務），因此**各頁看到的清單一致**。
+   過濾是防禦性的：真出現「甲所業務、乙所庫務」這種人時，不讓他看到選了必然 403 的選項。
+   成本為零——頁面本來就要宣告自己需要什麼角色（決定要不要出現在導覽列），順手複用
+2. **欄位一律顯示在畫面上並自動帶入**，不留空——使用者隨時看得見自己在對哪個所操作，
+   也省掉「請先選擇營業所」這個驗證狀態
+3. **預設值取「本頁合法集合」中排序最小者**，合法集合只有一個時欄位鎖定唯讀。
+   多營業所使用者拿到的是固定但無業務意義的值，這是刻意的：系統無「主要營業所」概念
+   （見「資料結構」段），沒有更好的依據可挑，穩定可預期即足夠。
+   **注意是本頁合法集合的最小值，不是 `branchRoles` 全部 keys 的最小值**——
+   取錯會帶入一個本頁不合法的所
+4. **選擇器決定「送什麼」，不決定「能做什麼」**——它讓 `branchCode` 成為完全可控的輸入
+   （改 devtools、直接打 API），後端一律不信任，見「資料範圍授權」段
+
+#### ADMIN 的選單列出全部營業所（2026-08-28 定案）
+
+依「資料範圍授權」表，ADMIN 的資料範圍是「不限」，因此其選單不受 `branchRoles` 的 keys 限制，
+需另行取得營業所清單（`GET /api/branches`）。
+
+後端須一致：`assertBranchAccess` 對 ADMIN 一律放行，不比對 `branchRoles`。
+**前後端必須同時實作**——只做前端會讓 ADMIN 選了別的所卻被後端擋，只做後端則他選不到。
+
+#### 為何不做全域「當前作業營業所」
+
+主要理由是**欄位就在畫面上**：使用者隨時看得見自己在對哪個所操作。
+全域切換器在 header 角落容易被看漏，導致對錯的營業所下單，而這種錯誤事後極難察覺。
+
+次要理由是全域值可能在某些頁面不合法（一人跨所擔任不同職務時），需要額外一套處理。
+但如規則 1 所述，正常資料下這種情況不出現，故此理由權重不高。
+
+> **一併刻意不做**「記住上次用過的營業所」。它能省下多營業所使用者的跨頁重選，
+> 代價是引入前端持久化狀態，以及「記住的值在本頁不合法」的 fallback。
+> 跨所人員是少數，不值得為此增加狀態。日後真的嫌煩再加，加的位置就是規則 3。
+
+---
+
 ## API 設計
 
 > 端點定義（路徑、HTTP method、請求/回應格式）以 Controller 為準，或由 Swagger/OpenAPI 自動產生。
@@ -186,7 +326,8 @@ token 生命週期（目前 **8 小時**）。授予延遲無害（重新登入�
 
 - 查詢使用者清單
 - 查詢單一使用者
-- 查詢營業所下的使用者
+- 查詢營業所下的使用者——須經 `AuthUserBranchRole`（角色歸屬）或 `Location`（儲位歸屬）反查，
+  兩者語意不同，端點須表明是哪一種；`AuthUser` 本身不帶營業所
 - 查詢角色清單
 - 查詢使用者的角色
 

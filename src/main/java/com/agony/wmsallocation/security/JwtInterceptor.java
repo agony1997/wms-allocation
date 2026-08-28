@@ -8,6 +8,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Set;
+
 // Spring MVC 的攔截器：在請求進到 Controller「之前」先驗身份與權限。
 // 相當於 Spring Security 的 Filter Chain，但攔的是 DispatcherServlet 之後、Handler 之前。
 // 攔截範圍由 WebMvcConfig 註冊（本專案只攔 /api/**）。
@@ -45,19 +49,17 @@ public class JwtInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        // 從 Payload 取出當初 generateToken 放進去的身份資訊
+        // 從 Payload 取出當初 generateToken 放進去的身份資訊。
+        // branchRoles 的 Set 還原交給 JwtUtil——JSON 解出來是 List，那個轉換屬於 token 邊界的責任
         String userCode = claims.getSubject();          // 對應 subject(userCode)
-        String role = claims.get("role", String.class); // 對應 claim("role", role)
+        Map<String, Set<String>> branchRoles = jwtUtil.extractBranchRoles(claims);
 
         // 3. 檢查是否有 @RequireRole 權限限制
         // 注意：getMethodAnnotation 只讀「方法上」的標註，標在 Controller 類別上的不會被讀到
         RequireRole requireRole = handlerMethod.getMethodAnnotation(RequireRole.class);
-        if (requireRole != null) {
-            String neededRole = requireRole.value();     // 這支 API 要求的角色
-            if (!neededRole.equals(role)) {              // 精確比對：角色不完全相同就擋
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN); // 角色不符，403
-                return false;
-            }
+        if (requireRole != null && !hasAnyRoleInAnyBranch(branchRoles, requireRole.value())) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN); // 角色不符，403
+            return false;
         }
 
         // 4. 全部通過才把使用者資訊放入 Context
@@ -65,9 +67,20 @@ public class JwtInterceptor implements HandlerInterceptor {
         // 為何等到這裡才寫：preHandle 回 false 時，本攔截器的 afterCompletion 不會被呼叫（見下方註解），
         // 若在角色檢查前就寫，403 這條路的 clear() 不會執行，值會殘留到下一個重用此執行緒的請求。
         UserContextHolder.setUserCode(userCode);
-        UserContextHolder.setRole(role);
+        UserContextHolder.setBranchRoles(branchRoles);
 
         return true; // 身份與權限都通過，放行進 Controller
+    }
+
+    // 功能授權的判定：他在「任一」營業所具備 needed 之中的任一角色。
+    // 刻意不比對本次操作的營業所——攔截器拿不到那個資訊（可能在 body，或要查單據才知道），
+    // 營業所比對一律由 Service 層做。詳見 RequireRole 的 javadoc 與 User.md「資料範圍授權」。
+    //
+    // 為何是獨立的私有方法而非 UserContextHolder 的查詢：此時 Context 還沒寫入。
+    // 寫入必須等到檢查通過之後（見下方 setUserCode 的註解），所以這裡只能對著 map 本身判斷。
+    private boolean hasAnyRoleInAnyBranch(Map<String, Set<String>> branchRoles, String[] needed) {
+        return branchRoles.values().stream()
+                .anyMatch(rolesOfBranch -> Arrays.stream(needed).anyMatch(rolesOfBranch::contains));
     }
 
     // 請求處理完畢後呼叫（即使中途拋例外也會，方便清理資源）。

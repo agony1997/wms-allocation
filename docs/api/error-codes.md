@@ -28,6 +28,7 @@
 | code | HTTP | 說明 | 觸發情境 | 前端是否分支 |
 |------|------|------|---------|------------|
 | `AUTH_BAD_CREDENTIALS` | 401 | 帳號或密碼錯誤 | 登入時查無帳號、密碼不符、或帳號已停用（一律回相同訊息，不洩漏帳號是否存在） | 否（顯示 message 即可） |
+| `AUTH_NO_ROLE_ASSIGNED` | 403 | 帳號未指派任何營業所角色 | 帳密正確但 `auth_user_branch_role` 一筆都沒有；放行的話登入後每支端點都 403、營業所選單為空，故在登入處擋下 | 否（顯示 message 即可） |
 
 ### branch（營業所）
 
@@ -112,3 +113,4 @@
 | 2026-07-13 | inventory 新增 `INVENTORY_INSUFFICIENT`（409），`InventoryService` 扣庫類操作原拋 `IllegalStateException` 無 handler 誤回 500，改走 `BusinessException`；庫存記錄不存在改用既有 `ResourceNotFoundException`（不新增碼），原拋 `IllegalArgumentException` 同樣誤回 500 | 新增碼，顯示 message 即可 |
 | 2026-07-15 | purchase 新增 `PURCHASE_ORDER_NOT_FOUND`（409），對應 `AllocationService.allocate()` 待配 SPOD 查無對應 SPO 時明確中止（取代原本 locationCode=null 導致 NOT NULL 例外整批 rollback） | 新增碼，顯示 message 即可 |
 | 2026-08-26 | `VALIDATION_ERROR` 觸發情境擴充：`POST /api/factory-delivery-orders/actions/receive` 的明細 `itemNo` 重複，原先由 `Collectors.toMap` 拋 `IllegalStateException` 誤回 500，改為在碰 DB 前擋下回 400，未新增 code | 無（既有碼，僅新增觸發途徑） |
+| 2026-08-28 | auth 新增 `AUTH_NO_ROLE_ASSIGNED`（403），對應 POST /api/auth/login 帳密正確但無任何營業所角色關聯。同批 `LoginResponse` 破壞性變更：移除單值 `role` 與 `branchCode`，改回 `branchRoles`（`{branchCode: [roleCode...]}`） | 新增碼，顯示 message 即可；**回應結構變更，前端 `stores/auth.js` 須同步** |
