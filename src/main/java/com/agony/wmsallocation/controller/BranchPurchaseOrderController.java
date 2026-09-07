@@ -1,6 +1,7 @@
 package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.purchase.BranchPurchaseOrderDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.BranchPurchaseOrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -17,6 +18,7 @@ public class BranchPurchaseOrderController {
     private final BranchPurchaseOrderService branchPurchaseOrderService;
 
     @PostMapping("/actions/aggregate")
+    @RequireRole({"LEADER", "WAREHOUSE", "ADMIN"})
     public List<BranchPurchaseOrderDto> aggregate(
             @RequestParam String branchCode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {
@@ -24,6 +26,7 @@ public class BranchPurchaseOrderController {
     }
 
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<BranchPurchaseOrderDto> list(
             @RequestParam String branchCode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {

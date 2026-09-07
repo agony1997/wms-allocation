@@ -106,6 +106,12 @@ User U001
 | 手動觸發庫存快照 | - | - | - | ✅ |
 | 主檔**寫入**（商品／客戶／工廠／銷售組織／營業所） | - | - | - | ✅ |
 | 主檔**讀取** | ✅ | ✅ | ✅ | ✅ |
+| 單據與庫存**讀取**（訂貨網格、SPO、BPO、FDO、配貨單、領貨單、庫存／異動／快照） | ✅ | ✅ | ✅ | ✅ |
+
+> 2026-09-07 補列（原矩陣只寫了主檔讀取）：單據與庫存讀取比照主檔讀取，功能層對四個角色全開，
+> 「看得到哪幾列」由「資料範圍授權」段的 Service 層檢查決定。依據有二：
+> 該段 SALES 一列本來就寫著「及其所屬營業所的**唯讀資料**」；且主線每一段都要先讀才能做
+> （配貨要看待配 SPOD、領貨要看待領明細、收貨要看待收清單），在功能層限縮讀取會直接擋掉主線。
 
 > 2026-08-26 補列（原矩陣未涵蓋）：解除凍結／確認 BPF 比照凍結歸 LEADER；
 > 彙總 BPO 依 [BranchPurchase.md](../purchase/BranchPurchase.md)「主要操作者：庫務，組長」；
@@ -174,6 +180,39 @@ User U001
 
 **已接受的代價**：在任一營業所具備某角色的人，打得到所有該角色端點的 Controller 門口，
 唯一防線是 Service 層有寫檢查。因此該檢查是**必要**而非加分項。
+
+### 標註覆蓋率：每支端點都要標，未標視為漏掛（2026-09-07 定案）
+
+Controller 的 58 支端點全部掛上 `@RequireRole`，包含純讀取端點——讀取標的是全部四個角色，
+語意上等於「只要有 token」（無角色關聯的帳號不得登入，見下段）。
+
+**為何不讓讀取端點留白**：`HandlerInterceptor` 預設 allow-all，漏掛不會有任何人提醒。
+留白就分不出「刻意開放」與「忘記掛」；標滿之後「沒有標註」才是一個可以被測試釘死的訊號。
+代價是四角色標註在語意上是 no-op、讀起來像雜訊，且日後新增角色要回頭改 32 處——
+但那正是明示式的好處：新角色不會默默取得全部讀取權。
+
+唯一例外是 `POST /api/auth/login`（在 `WebMvcConfig` 排除攔截，呼叫時還沒有身分可判定）。
+
+### `/actuator/**` 不在攔截器覆蓋範圍內，以「不曝光」關閉（2026-09-07 定案）
+
+`JwtInterceptor` 技術上蓋不到 actuator：`WebMvcConfigurer.addInterceptors` 註冊的攔截器只會被塞進
+`WebMvcConfigurationSupport` 自己建的那幾個 handler mapping，而 actuator 另有一組
+`WebMvcEndpointHandlerMapping`，它只會偵測 `MappedInterceptor` 型別的 **bean**
+（Spring Boot 3.4.1 原始碼確認）。因此把 `addPathPatterns` 由 `/api/**` 改成 `/**`
+**不會**保護到 actuator——那是「以為有保護、其實沒有」。
+
+改法是收斂曝光面而非加保護：`management.endpoints.web.exposure.include` 只留 `health`
+（保留給日後的 docker healthcheck）、`show-details=never`。原先 `include=health,info,metrics`
+搭配 `show-details=always` 會把資料庫連線狀態吐給未登入者。
+
+`show-details` 不採 `when-authorized`：該值靠 Spring Security 的 principal 判斷，本專案手刻 JWT
+（[ADR-0010](../../../adr/0010-custom-jwt-auth-without-spring-security.md)）永遠取不到 principal，
+行為等於 `never`，寫 `never` 才不會誤導後人以為「登入後看得到」。
+
+> 未處理的部分：攔截器仍然只攔 `/api/**`，即 fail-open 的體質沒變——日後新增非 `/api/` 前綴的
+> 路徑（例如 webhook）不會自動受保護。要根治得改用 `MappedInterceptor` bean 註冊、預設全擋、
+> 例外才排除（並須排除 `/error`，否則未登入者的 404 會變成 401）。目前全部端點都在 `/api/` 底下，
+> 不值得為此改變註冊方式。
 
 ### Service 層的兩個檢查入口
 

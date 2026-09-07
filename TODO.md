@@ -10,16 +10,20 @@
 
 ## 現在在哪
 
-主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步中的**第 1、2 步已完成**
-（多角色改造 + 移除 `AuthUser.branchCode`），測試 196 綠。
+主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步中的**第 1、2、3 步已完成**
+（多角色改造 + 移除 `AuthUser.branchCode` + 58 支端點掛上 `@RequireRole`），測試 196 綠。
 
 ```
-07df060 docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時效
-b92903b feat: 實作業務領貨單（SRO），補完訂貨→配貨→領貨主線
-d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
+ea4ef99 feat: 支援一人多營業所多角色，移除主要營業所欄位
+259f856 docs: 新增 TODO.md 追蹤授權這條線的待辦
+dd8502e docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時效
 ```
 
-目前在**授權**這條線上，分四步，做完才輪到前端。**下一步是第 3 步「掛 `@RequireRole` 到端點」。**
+目前在**授權**這條線上，分四步，做完才輪到前端。**下一步是第 4 步「資料級授權」**——
+那才是把 IDOR 關掉的一步，第 3 步只擋工種、不擋「動誰的資料」。
+
+**第 3 步留了一件事給你自己做**：反射守門測試（見下方「✅ 已完成：掛 `@RequireRole` 到端點」
+的「待你寫的守門測試」段），對照表已經列好。在它寫出來之前，58 支標註沒有任何自動驗證。
 
 > 跑測試：`./mvnw.cmd test`
 > `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 196 支照跑。
@@ -130,26 +134,80 @@ d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 > **未決**：`data.sql` 四個使用者目前都是單所單角，多所／同所多角一個案例都沒有。
 > 單元測試用 mock 不受影響，但手動 demo 測不到這次改造的重點。
 > 要補的話會動到 `location` 資料，進而影響配貨 demo 的數字——做前端時再決定。
+>
+> 第 3 步之後多了一個連帶影響：**單一帳號已經跑不完主線**（U001 只有 SALES、U002 只有 LEADER、
+> U003 只有 WAREHOUSE），手動 demo 要嘛逐段換帳號登入，要嘛全程用 `A001`（ADMIN 通吃）。
+> 前端 demo 若想演「不同角色看到不同按鈕」，補多角資料就從這裡開始。
 
 ---
 
+## ✅ 已完成：掛 `@RequireRole` 到端點（2026-09-07）
+
+58 支端點全部掛上，含純讀取端點（標四個角色）。定案理由已寫進
+`User.md`「標註覆蓋率」與「`/actuator/**` 不在攔截器覆蓋範圍內」兩段，慣例寫進 `backend.md`
+「API 慣例」，`RequireRole` 的 javadoc 也補了「未標註視為漏掛」。
+
+### 端點—角色對照表（寫守門測試時對著這張表）
+
+**未標註（1 支）**：`POST /api/auth/login`——已在 `WebMvcConfig` 排除攔截，呼叫時還沒有身分。
+
+**四角色全開（32 支讀取）**：
+
+- `GET /api/users`、`/api/users/{userCode}`
+- `GET /api/branches`、`/api/branches/{branchCode}`
+- `GET /api/locations`、`/api/locations/{locationCode}`
+- `GET /api/products`、`/api/products/{productCode}`
+- `GET /api/customers`、`/api/customers/{customerCode}`
+- `GET /api/factories`、`/api/factories/{factoryCode}`
+- `GET /api/sales-orgs`、`/api/sales-orgs/{salesOrgCode}`
+- `GET /api/sales-purchase-orders`
+- `GET /api/branch-purchases`
+- `GET /api/branch-purchase-orders`
+- `GET /api/factory-delivery-orders`、`/pending`、`/received`
+- `GET /api/allocation-orders`、`/pending-spod`、`/{allocationNo}`
+- `GET /api/sales-receive-orders`、`/pending`、`/{receiveNo}`
+- `GET /api/inventory`、`/warehouse/{branchCode}`、`/location/{locationCode}`、
+  `/product/{productCode}`、`/transactions`、`/snapshot/{date}`
+
+**有限制（26 支動作與主檔寫入）**：
+
+| 角色 | 端點 | 支數 |
+|------|------|:----:|
+| `ADMIN` | `POST`／`PUT`／`DELETE` × {`/api/branches`, `/api/products`, `/api/customers`, `/api/factories`, `/api/sales-orgs`} | 15 |
+| `ADMIN` | `POST /api/factory-delivery-orders/actions/ship`（Mock 出貨） | 1 |
+| `ADMIN` | `POST /api/inventory/snapshot`（手動快照） | 1 |
+| `LEADER`, `ADMIN` | `POST /api/branch-purchases/actions/{freeze,unfreeze,confirm}`、`PUT /api/branch-purchases/adjust` | 4 |
+| `LEADER`, `WAREHOUSE`, `ADMIN` | `POST /api/branch-purchase-orders/actions/aggregate` | 1 |
+| `WAREHOUSE`, `ADMIN` | `POST /api/factory-delivery-orders/actions/receive`、`POST /api/allocation-orders/actions/allocate` | 2 |
+| `SALES`, `LEADER`, `ADMIN` | `PUT /api/sales-purchase-orders`（建立 SPO） | 1 |
+| `SALES`, `ADMIN` | `POST /api/sales-receive-orders/actions/receive`（領貨） | 1 |
+
+### 待你寫的守門測試
+
+反射掃 `controller` package 全部 `@RequestMapping` 方法，斷言：① 除 login 外每支都有
+`@RequireRole`；② 角色集合與上表一致。這是本專案第一支反射／架構測試，依「每一種新東西的第一個
+自己寫」的紀律留給你。要點：比對用 `Set` 不比陣列順序；`AuthController.login` 要當成明列的白名單
+而不是「沒有標註就跳過」，否則測試本身就 fail-open。
+
+### actuator 的洞：改成不曝光，沒有改攔截範圍
+
+原本這裡寫的修法（`addPathPatterns("/api/**")` → `/**`）**做不到它想做的事**：
+`WebMvcConfigurer.addInterceptors` 註冊的攔截器只會被塞進 `WebMvcConfigurationSupport`
+自己建的那幾個 handler mapping，actuator 另有一組 `WebMvcEndpointHandlerMapping`，
+它只吃 `MappedInterceptor` 型別的 bean（已在 Spring Boot 3.4.1 原始碼確認）。
+改 `/**` 只會多攔到自家 `/api/` 以外的路徑，actuator 依然裸奔。
+
+實際做法：`exposure.include` 只留 `health`、`show-details=never`（不是 `when-authorized`——
+沒有 Spring Security 就永遠取不到 principal，那個值的行為等於 `never`，寫 never 才不誤導）。
+
+> 因此「攔截器 fail-open」這件事**沒有解決**，只是把當時唯一的受害者關掉了。
+> 要根治得改用 `MappedInterceptor` bean 註冊、預設全擋、例外才排除；代價是
+> `WebMvcConfig` 不再是 `WebMvcConfigurer`，`@WebMvcTest` 切片就不再載入它，
+> 五支 Controller 測試裡的 `when(preHandle).thenReturn(true)` 會變成無效的死 stub，
+> 且必須排除 `/error`（否則未登入者的 404 會變 401）。目前所有端點都在 `/api/` 底下，
+> 等真的出現非 `/api/` 路徑（webhook、SSE）再改。
+
 ## 接著（可以交給 Claude）
-
-### 3. 掛 `@RequireRole` 到端點
-
-照 `User.md` 權限矩陣掛上 58 支端點。矩陣已補齊、每列都標了依據，這步是機械工作。
-**必須等第 2 步做完**，否則掛上去的是錯的（單角色比對會把一人多角的使用者擋掉）。
-
-順便一起修的兩個洞：
-
-- **`@RequireRole` 目前零使用**——整個系統只有「要不要 token」，沒有「你是誰能做什麼」
-- **`/actuator/**` 完全沒被攔截器蓋到**（只攔 `/api/**`），而 `show-details=always`
-  會把資料庫連線狀態吐給未登入者。修法：`addPathPatterns("/**")` 改成預設全擋、
-  例外才 `exclude`（`/api/auth/login`、`/actuator/health` 給 docker healthcheck），
-  並把 `show-details` 改成 `when-authorized`
-
-> 這是「攔截器 fail-open」的體現：Spring Security 預設 deny-all，漏掉一條路徑會被擋住、
-> 馬上發現；HandlerInterceptor 預設 allow-all，漏掉就是裸奔且無人提醒。
 
 ### 4. 資料級授權
 
@@ -202,7 +260,7 @@ d769521 feat: 建立倉儲配貨系統後端與專案文件基礎
 | `findOrCreateInventory` 無鎖 → 收貨 vs 配貨 lost update | 真的洞，但要配階段 4 的併發整合測試一起改；ADR-0013 的「已知缺口」段推論不完整，也要補記 |
 | 配貨的「算」與「扣」有時間差，且算的時候讀到的 Inventory 已進 persistence context | 同上，一併處理。修法：給 `findByBranchCodeAndLocationType` 加 `@Lock` |
 | `BranchPurchaseOrderService:54` 彙總無鎖，連點可能產生重複 BPO | 同一類，一個 annotation 的事 |
-| 401/403 沒有 response body | 前端已有 workaround（「401 且無 body」判為逾時），但 403 沒有對應處理，等第 3 步掛 `@RequireRole` 後會浮現 |
+| 401/403 沒有 response body | 前端已有 workaround（「401 且無 body」判為逾時）；403 已隨第 3 步變成真的會發生（例如 SALES 打凍結端點），前端仍無對應處理——做前端時一併補 |
 | 手刻 JWT 不用 Spring Security | ADR-0010 有記錄。升級條件：要 OAuth2/SSO、資料級授權、多角色——**三者已觸發兩個**，做完第 2、4 步後值得回頭評估遷移，並寫新 ADR 取代 0010 |
 | ADR 統整（補記 0013/0010、補寫 String 業務碼與 ddl-auto 兩篇） | 刻意延後。文件已經跑在程式前面太多，先把程式做完 |
 | `data.sql` 改過但沒實際跑過 | 本機沒有 Docker/SQL Server，改號那批只做過靜態檢查。第一次啟動應用程式時留意 INSERT 有沒有失敗 |

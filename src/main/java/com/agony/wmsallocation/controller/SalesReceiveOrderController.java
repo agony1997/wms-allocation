@@ -3,6 +3,7 @@ package com.agony.wmsallocation.controller;
 import com.agony.wmsallocation.dto.allocation.AllocationOrderDetailDto;
 import com.agony.wmsallocation.dto.allocation.SalesReceiveOrderDetailDto;
 import com.agony.wmsallocation.dto.allocation.SalesReceiveOrderDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.SalesReceiveOrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -20,6 +21,7 @@ public class SalesReceiveOrderController {
 
     /** 查詢某業務員儲位的待領明細（領貨前點貨用）。 */
     @GetMapping("/pending")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<AllocationOrderDetailDto> listPending(@RequestParam String locationCode) {
         return salesReceiveOrderService.listPending(locationCode);
     }
@@ -29,12 +31,14 @@ public class SalesReceiveOrderController {
      * branchCode 由儲位主檔反查、領貨日期由後端取當下，皆不由呼叫端指定。
      */
     @PostMapping("/actions/receive")
+    @RequireRole({"SALES", "ADMIN"})
     public List<SalesReceiveOrderDetailDto> receive(@RequestParam String locationCode) {
         return salesReceiveOrderService.receive(locationCode);
     }
 
     /** 查詢某營業所某日的領貨單清單。 */
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<SalesReceiveOrderDto> list(
             @RequestParam String branchCode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate receiveDate) {
@@ -43,6 +47,7 @@ public class SalesReceiveOrderController {
 
     /** 查詢單一領貨單明細。 */
     @GetMapping("/{receiveNo}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public SalesReceiveOrderDto get(@PathVariable String receiveNo) {
         return salesReceiveOrderService.get(receiveNo);
     }

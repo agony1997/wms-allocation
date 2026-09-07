@@ -8,6 +8,13 @@ import java.lang.annotation.Target;
 // 自訂標註：標在 Controller 的 API 方法上，宣告「呼叫這支 API 需要什麼角色」。
 // 由 JwtInterceptor 讀取並執行檢查，角色不符就回 403。相當於 Spring Security 的 @PreAuthorize。
 
+// 慣例：Controller 的每一支端點都必須掛這個標註，未標註一律視為漏掛。
+// 唯一例外是 POST /api/auth/login——它在 WebMvcConfig 被排除攔截，呼叫時還沒有身分可判定。
+// 純讀取端點也要標，標的是全部四個角色（語意上等於「只要有 token」，因為無角色關聯的帳號
+// 不得登入，見 User.md「登入契約」）。為何不乾脆留白：HandlerInterceptor 預設 allow-all，
+// 漏掛不會有任何人提醒，留白就分不出「刻意開放」與「忘記掛」。標滿之後「沒有標註」才有意義。
+// 端點與角色的對照依據是 User.md 的「權限矩陣」，該表是唯一真相來源。
+
 // @Target：允許標註的位置。刻意只開放 METHOD——JwtInterceptor 用 getMethodAnnotation 讀，
 // 只看得到方法層級的標註。若開放 TYPE，標在類別上會編譯通過但完全不生效，
 // 變成「以為有保護、其實沒有」的安全性陷阱；限制在 METHOD 讓誤用直接編譯失敗。

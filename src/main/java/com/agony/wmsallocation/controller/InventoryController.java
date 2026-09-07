@@ -2,6 +2,7 @@ package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.inventory.InventoryDto;
 import com.agony.wmsallocation.dto.inventory.InventoryTransactionDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.InventoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -26,6 +27,7 @@ public class InventoryController {
      * 查詢所有庫存
      */
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryDto> findAll() {
         return inventoryService.findAll();
     }
@@ -34,6 +36,7 @@ public class InventoryController {
      * 查詢大庫庫存
      */
     @GetMapping("/warehouse/{branchCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryDto> findWarehouseInventory(@PathVariable String branchCode) {
         return inventoryService.findWarehouseInventory(branchCode);
     }
@@ -42,6 +45,7 @@ public class InventoryController {
      * 查詢某儲位庫存
      */
     @GetMapping("/location/{locationCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryDto> findByLocation(@PathVariable String locationCode) {
         return inventoryService.findByLocation(locationCode);
     }
@@ -50,6 +54,7 @@ public class InventoryController {
      * 查詢某產品庫存分布
      */
     @GetMapping("/product/{productCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryDto> findByProduct(@PathVariable String productCode) {
         return inventoryService.findByProduct(productCode);
     }
@@ -60,6 +65,7 @@ public class InventoryController {
      * 依來源單據查詢異動記錄
      */
     @GetMapping("/transactions")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryTransactionDto> findTransactions(@RequestParam String sourceDocType,
                                                           @RequestParam String sourceDocNo) {
         return inventoryService.findTransactionsByDoc(sourceDocType, sourceDocNo);
@@ -72,6 +78,7 @@ public class InventoryController {
      * Location，不包訊息信封）；快照本體動輒整表，不隨建立回傳，需要時走 GET /snapshot/{date}。
      */
     @PostMapping("/snapshot")
+    @RequireRole("ADMIN")
     public ResponseEntity<Void> createSnapshot() {
         LocalDate snapshotDate = inventoryService.createTodaySnapshot();
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -85,6 +92,7 @@ public class InventoryController {
      * 查詢歷史快照
      */
     @GetMapping("/snapshot/{date}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<InventoryDto> findSnapshot(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                                            @RequestParam(required = false) String branchCode) {
         if (branchCode != null) {

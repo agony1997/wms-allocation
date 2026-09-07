@@ -2,6 +2,7 @@ package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.purchase.SalesPurchaseOrderDto;
 import com.agony.wmsallocation.dto.purchase.SavePurchaseRequest;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.SalesPurchaseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ public class SalesPurchaseController {
 
     // 唯讀查詢：無單回空白表單，不建資料（lazy create，見 ADR-0009）
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public SalesPurchaseOrderDto find(
             @RequestParam String branchCode,
             @RequestParam String locationCode,
@@ -28,6 +30,7 @@ public class SalesPurchaseController {
 
     // upsert：業務鍵在 body（每儲位每日唯一），PUT 對該資源做建立或全量替換
     @PutMapping
+    @RequireRole({"SALES", "LEADER", "ADMIN"})
     public SalesPurchaseOrderDto save(@Valid @RequestBody SavePurchaseRequest request) {
         return salesPurchaseService.save(request);
     }

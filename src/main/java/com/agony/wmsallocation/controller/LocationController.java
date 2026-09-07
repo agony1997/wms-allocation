@@ -1,6 +1,7 @@
 package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.branch.LocationDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.LocationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ public class LocationController {
     private final LocationService locationService;
 
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<LocationDto> findAll(@RequestParam(required = false) String branchCode,
                                      @RequestParam(required = false) Boolean activeOnly) {
         if (branchCode != null) {
@@ -31,6 +33,7 @@ public class LocationController {
 
     // locationCode 全域唯一，路徑不需要再帶 branchCode
     @GetMapping("/{locationCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public LocationDto findByLocationCode(@PathVariable String locationCode) {
         return locationService.findByLocationCode(locationCode);
     }

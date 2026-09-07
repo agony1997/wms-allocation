@@ -39,6 +39,8 @@ com.agony.wmsallocation
 
 - 所有端點以 `/api/` 為前綴
 - 回應語言使用繁體中文
+- **每一支端點都必須掛 `@RequireRole`，未標註視為漏掛**。純讀取端點也要標，標的是全部四個角色（語意上等於「只要有 token」）。唯一例外是 `POST /api/auth/login`。角色依據 [User.md](../requirements/specification/master/User.md) 的「權限矩陣」，該表是單一真相來源；理由與代價見同檔「標註覆蓋率」段
+- `@RequireRole` 只判定「在任一營業所具備該角色」，**不**比對本次操作的營業所／儲位——那是 Service 層的資料範圍檢查，見 User.md「資料範圍授權」
 
 ### 回應設計（RESTful 務實派，全站一致）
 

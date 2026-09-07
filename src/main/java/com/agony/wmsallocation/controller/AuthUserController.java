@@ -1,6 +1,7 @@
 package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.auth.UserDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.AuthUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ public class AuthUserController {
     private final AuthUserService authUserService;
 
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<UserDto> findAll(@RequestParam(required = false) Boolean activeOnly) {
         if (Boolean.TRUE.equals(activeOnly)) {
             return authUserService.findAllActive();
@@ -23,6 +25,7 @@ public class AuthUserController {
     }
 
     @GetMapping("/{userCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public UserDto findByUserCode(@PathVariable String userCode) {
         return authUserService.findByUserCode(userCode);
     }

@@ -10,6 +10,7 @@
 - **前端消費原則**：99% 的錯誤只需顯示後端回的 `message`；只有「需要做不一樣的 UI 行為」的少數碼才 `switch(errorCode)` 特別處理（見「前端是否分支」欄）。
 - **破壞性變更**：`errorCode` 一旦對外送出即為契約。**重新命名既有 code = 破壞性變更**，須通知前端、不可當作無害 refactor。新增 code 不算破壞性。
 - **多對一**：多個業務 code 可對應同一個 HTTP status（例如都用 `409`），這正是 `errorCode` 存在的意義——HTTP status 分不出來的，靠 code 分。
+- **例外：攔截器擋下的 401／403 沒有 body**。`JwtInterceptor` 對「沒帶 token／token 失效過期」只 `setStatus(401)`、對「`@RequireRole` 角色不符」只 `setStatus(403)`，兩者都不經 `GlobalExceptionHandler`，因此**沒有 `errorCode`、也沒有 `message`**。前端據此判斷：`401` 且無 body → 登入逾時，清空並導回登入頁（已實作於 `httpClient.js`）；`403` 且無 body → 權限不足，顯示通用訊息（**尚未實作**）。要讓這兩者也有結構化 body，得把攔截器改成拋 `BusinessException` 或補 `HandlerExceptionResolver`——目前刻意不做。
 
 ## 通用錯誤碼（跨領域共用）
 
@@ -114,3 +115,4 @@
 | 2026-07-15 | purchase 新增 `PURCHASE_ORDER_NOT_FOUND`（409），對應 `AllocationService.allocate()` 待配 SPOD 查無對應 SPO 時明確中止（取代原本 locationCode=null 導致 NOT NULL 例外整批 rollback） | 新增碼，顯示 message 即可 |
 | 2026-08-26 | `VALIDATION_ERROR` 觸發情境擴充：`POST /api/factory-delivery-orders/actions/receive` 的明細 `itemNo` 重複，原先由 `Collectors.toMap` 拋 `IllegalStateException` 誤回 500，改為在碰 DB 前擋下回 400，未新增 code | 無（既有碼，僅新增觸發途徑） |
 | 2026-08-28 | auth 新增 `AUTH_NO_ROLE_ASSIGNED`（403），對應 POST /api/auth/login 帳密正確但無任何營業所角色關聯。同批 `LoginResponse` 破壞性變更：移除單值 `role` 與 `branchCode`，改回 `branchRoles`（`{branchCode: [roleCode...]}`） | 新增碼，顯示 message 即可；**回應結構變更，前端 `stores/auth.js` 須同步** |
+| 2026-09-07 | 58 支端點掛上 `@RequireRole`，未新增 code：攔截器的**裸 403（無 body）由「理論上可能」變成實際會發生**（例如 SALES 打凍結端點）。「使用約定」新增一條說明兩種無 body 的 401／403 | **前端須補「403 且無 body → 權限不足」的處理**（目前只處理 401 無 body） |

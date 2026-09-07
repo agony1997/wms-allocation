@@ -3,6 +3,7 @@ package com.agony.wmsallocation.controller;
 import com.agony.wmsallocation.dto.branch.BranchCreateRequest;
 import com.agony.wmsallocation.dto.branch.BranchDto;
 import com.agony.wmsallocation.dto.branch.BranchUpdateRequest;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.BranchService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class BranchController {
     private final BranchService branchService;
 
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<BranchDto> findAll(@RequestParam(required = false) Boolean activeOnly) {
         if (Boolean.TRUE.equals(activeOnly)) {
             return branchService.findAllActive();
@@ -29,11 +31,13 @@ public class BranchController {
     }
 
     @GetMapping("/{branchCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public BranchDto findByBranchCode(@PathVariable String branchCode) {
         return branchService.findByBranchCode(branchCode);
     }
 
     @PostMapping
+    @RequireRole("ADMIN")
     public ResponseEntity<BranchDto> create(@Valid @RequestBody BranchCreateRequest request) {
         BranchDto created = branchService.create(request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -44,12 +48,14 @@ public class BranchController {
     }
 
     @PutMapping("/{branchCode}")
+    @RequireRole("ADMIN")
     public BranchDto update(@PathVariable String branchCode,
                             @Valid @RequestBody BranchUpdateRequest request) {
         return branchService.update(branchCode, request);
     }
 
     @DeleteMapping("/{branchCode}")
+    @RequireRole("ADMIN")
     public ResponseEntity<Void> delete(@PathVariable String branchCode) {
         branchService.delete(branchCode);
         return ResponseEntity.noContent().build();

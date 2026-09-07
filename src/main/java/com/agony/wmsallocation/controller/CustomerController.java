@@ -3,6 +3,7 @@ package com.agony.wmsallocation.controller;
 import com.agony.wmsallocation.dto.master.CustomerCreateRequest;
 import com.agony.wmsallocation.dto.master.CustomerDto;
 import com.agony.wmsallocation.dto.master.CustomerUpdateRequest;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.CustomerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class CustomerController {
     private final CustomerService customerService;
 
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<CustomerDto> findAll(@RequestParam(required = false) Boolean activeOnly) {
         if (Boolean.TRUE.equals(activeOnly)) {
             return customerService.findAllActive();
@@ -29,11 +31,13 @@ public class CustomerController {
     }
 
     @GetMapping("/{customerCode}")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public CustomerDto findByCustomerCode(@PathVariable String customerCode) {
         return customerService.findByCustomerCode(customerCode);
     }
 
     @PostMapping
+    @RequireRole("ADMIN")
     public ResponseEntity<CustomerDto> create(@Valid @RequestBody CustomerCreateRequest request) {
         CustomerDto created = customerService.create(request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -44,12 +48,14 @@ public class CustomerController {
     }
 
     @PutMapping("/{customerCode}")
+    @RequireRole("ADMIN")
     public CustomerDto update(@PathVariable String customerCode,
                               @Valid @RequestBody CustomerUpdateRequest request) {
         return customerService.update(customerCode, request);
     }
 
     @DeleteMapping("/{customerCode}")
+    @RequireRole("ADMIN")
     public ResponseEntity<Void> delete(@PathVariable String customerCode) {
         customerService.delete(customerCode);
         return ResponseEntity.noContent().build();

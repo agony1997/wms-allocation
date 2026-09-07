@@ -2,6 +2,7 @@ package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.purchase.AdjustConfirmedQtyRequest;
 import com.agony.wmsallocation.dto.purchase.BranchPurchaseSummaryDto;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.BranchPurchaseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ public class BranchPurchaseController {
 
     // 取得該營業所當天的訂單網格資訊（以 Flat List 形式回傳，前端自行轉 Matrix）
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public BranchPurchaseSummaryDto getBranchSummary(
             @RequestParam String branchCode, 
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {
@@ -27,6 +29,7 @@ public class BranchPurchaseController {
 
     // 操作者身份由 Service 從 UserContextHolder（JwtInterceptor 寫入）取得，不開放呼叫端指定
     @PostMapping("/actions/freeze")
+    @RequireRole({"LEADER", "ADMIN"})
     public void freezeBranchPurchase(
             @RequestParam String branchCode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {
@@ -34,6 +37,7 @@ public class BranchPurchaseController {
     }
 
     @PostMapping("/actions/unfreeze")
+    @RequireRole({"LEADER", "ADMIN"})
     public void unfreezeBranchPurchase(
             @RequestParam String branchCode, 
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {
@@ -41,6 +45,7 @@ public class BranchPurchaseController {
     }
 
     @PostMapping("/actions/confirm")
+    @RequireRole({"LEADER", "ADMIN"})
     public void confirmBranchPurchase(
             @RequestParam String branchCode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate) {
@@ -48,6 +53,7 @@ public class BranchPurchaseController {
     }
 
     @PutMapping("/adjust")
+    @RequireRole({"LEADER", "ADMIN"})
     public void adjustConfirmedQty(
             @RequestParam String branchCode, 
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate purchaseDate,

@@ -2,6 +2,7 @@ package com.agony.wmsallocation.controller;
 
 import com.agony.wmsallocation.dto.receive.FactoryDeliveryOrderDto;
 import com.agony.wmsallocation.dto.receive.ReceiveFactoryDeliveryOrderRequest;
+import com.agony.wmsallocation.security.RequireRole;
 import com.agony.wmsallocation.service.FactoryDeliveryOrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,30 +19,35 @@ public class FactoryDeliveryOrderController {
 
     /** Mock 工廠出貨：依 BPO 產生 FDO。 */
     @PostMapping("/actions/ship")
+    @RequireRole("ADMIN")
     public FactoryDeliveryOrderDto ship(@RequestParam String bpoNo) {
         return factoryDeliveryOrderService.ship(bpoNo);
     }
 
     /** 查詢某營業所待收貨清單。 */
     @GetMapping("/pending")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<FactoryDeliveryOrderDto> listPending(@RequestParam String branchCode) {
         return factoryDeliveryOrderService.listPending(branchCode);
     }
 
     /** 查詢某營業所收貨記錄（已收貨、有差異）。 */
     @GetMapping("/received")
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public List<FactoryDeliveryOrderDto> listReceived(@RequestParam String branchCode) {
         return factoryDeliveryOrderService.listReceived(branchCode);
     }
 
     /** 查詢單一 FDO 明細。 */
     @GetMapping
+    @RequireRole({"SALES", "LEADER", "WAREHOUSE", "ADMIN"})
     public FactoryDeliveryOrderDto getByFdoNo(@RequestParam String fdoNo) {
         return factoryDeliveryOrderService.getByFdoNo(fdoNo);
     }
 
     /** 收貨確認：逐項輸入實收數量，比對後轉態並入庫。 */
     @PostMapping("/actions/receive")
+    @RequireRole({"WAREHOUSE", "ADMIN"})
     public FactoryDeliveryOrderDto receive(@Valid @RequestBody ReceiveFactoryDeliveryOrderRequest request) {
         return factoryDeliveryOrderService.receive(request);
     }
