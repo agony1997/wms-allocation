@@ -16,6 +16,7 @@ import com.agony.wmsallocation.repository.BranchPurchaseFrozenRepo;
 import com.agony.wmsallocation.repository.ProductRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import com.agony.wmsallocation.security.UserContextHolder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class BranchPurchaseService {
     private final ProductRepo productRepo;
     private final SalesPurchaseOrderMapper mapper;
     private final Clock clock;
+    private final DataScopeGuard dataScopeGuard;
 
     public BranchPurchaseSummaryDto getBranchSummary(String branchCode, LocalDate purchaseDate) {
         List<SalesPurchaseOrder> orders = spoRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate);
@@ -63,6 +65,7 @@ public class BranchPurchaseService {
     /** 凍結；操作者取自當前登入身份（{@link UserContextHolder}），不由呼叫端指定。 */
     @Transactional
     public void freeze(String branchCode, LocalDate purchaseDate) {
+        dataScopeGuard.assertBranchAccess(branchCode, "LEADER");
         if (bpfRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate).isPresent()) {
              throw new BusinessRuleException("已經凍結或確認", ErrorCode.PURCHASE_ORDER_NOT_EDITABLE);
         }
@@ -77,6 +80,7 @@ public class BranchPurchaseService {
 
     @Transactional
     public void unfreeze(String branchCode, LocalDate purchaseDate) {
+        dataScopeGuard.assertBranchAccess(branchCode, "LEADER");
         BranchPurchaseFrozen bpf = bpfRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate)
                 .orElseThrow(() -> new BusinessRuleException("查無凍結記錄", ErrorCode.RESOURCE_NOT_FOUND));
         
@@ -89,6 +93,7 @@ public class BranchPurchaseService {
     /** 確認；操作者取自當前登入身份（{@link UserContextHolder}），不由呼叫端指定。 */
     @Transactional
     public void confirm(String branchCode, LocalDate purchaseDate) {
+        dataScopeGuard.assertBranchAccess(branchCode, "LEADER");
         BranchPurchaseFrozen bpf = bpfRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate)
                 .orElseThrow(() -> new BusinessRuleException("必須先凍結才能確認", ErrorCode.RESOURCE_NOT_FOUND));
 
@@ -104,6 +109,7 @@ public class BranchPurchaseService {
 
     @Transactional
     public void adjustConfirmedQty(String branchCode, LocalDate purchaseDate, AdjustConfirmedQtyRequest request) {
+        dataScopeGuard.assertBranchAccess(branchCode, "LEADER");
         BranchPurchaseFrozen bpf = bpfRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate)
                 .orElseThrow(() -> new BusinessRuleException("尚未凍結，不可修改確認數量", ErrorCode.RESOURCE_NOT_FOUND));
                 

@@ -20,6 +20,7 @@ import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.AllocationOrderMapper;
 import com.agony.wmsallocation.mapper.SalesPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.*;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ public class AllocationService {
     private final InventoryService inventoryService;
     private final AllocationOrderMapper mapper;
     private final SalesPurchaseOrderMapper spodMapper;
+    private final DataScopeGuard dataScopeGuard;
 
     // 純函式、無狀態、刻意不掛 Spring（見其 javadoc），故直接 new，不走建構子注入
     private final AllocationCalculator allocationCalculator = new AllocationCalculator();
@@ -82,6 +84,7 @@ public class AllocationService {
     /** 執行配貨，回傳本次產生的 AOD（供 Controller 用；不建 AO 時回空清單）。 */
     @Transactional
     public List<AllocationOrderDetailDto> executeAllocation(String branchCode, LocalDate allocationDate) {
+        dataScopeGuard.assertBranchAccess(branchCode, "WAREHOUSE");
         return mapper.toDetailDtoList(allocate(branchCode, allocationDate));
     }
 

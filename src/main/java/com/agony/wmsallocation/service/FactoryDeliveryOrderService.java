@@ -16,6 +16,7 @@ import com.agony.wmsallocation.repository.BranchPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.BranchPurchaseOrderRepo;
 import com.agony.wmsallocation.repository.FactoryDeliveryOrderDetailRepo;
 import com.agony.wmsallocation.repository.FactoryDeliveryOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import com.agony.wmsallocation.security.UserContextHolder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,7 @@ public class FactoryDeliveryOrderService {
     private final FactoryDeliveryOrderMapper mapper;
     private final InventoryService inventoryService;
     private final Clock clock;
+    private final DataScopeGuard dataScopeGuard;
 
     /**
      * 依 BPO 全額出貨產生 FDO（單批次模擬）。一張 BPO 僅能出貨一次。
@@ -114,6 +116,8 @@ public class FactoryDeliveryOrderService {
 
         FactoryDeliveryOrder fdo = fdoRepo.findByFdoNo(request.fdoNo())
                 .orElseThrow(() -> new BusinessRuleException("查無工廠出貨單：" + request.fdoNo(), ErrorCode.RESOURCE_NOT_FOUND));
+
+        dataScopeGuard.assertBranchAccess(fdo.getBranchCode(), "WAREHOUSE");
 
         if (fdo.getStatus() != FactoryDeliveryStatus.PENDING) {
             throw new BusinessRuleException("工廠出貨單非待收貨狀態，不可收貨確認：" + request.fdoNo(), ErrorCode.FDO_NOT_RECEIVABLE);

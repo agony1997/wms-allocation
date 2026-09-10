@@ -12,6 +12,8 @@ import com.agony.wmsallocation.mapper.SalesPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.BranchPurchaseFrozenRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
+import com.agony.wmsallocation.security.UserContextHolder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,7 @@ public class SalesPurchaseService {
     private final SequenceService sequenceService;
     private final SalesPurchaseOrderMapper mapper;
     private final Clock clock;
+    private final DataScopeGuard dataScopeGuard;
 
     /**
      * 查詢業務員訂貨單（唯讀）。無單則回傳空白表單（purchaseNo=null），**不寫入資料**——
@@ -68,6 +71,13 @@ public class SalesPurchaseService {
      */
     @Transactional
     public SalesPurchaseOrderDto save(SavePurchaseRequest request) {
+        // 該所 LEADER 可代任一儲位下單；否則走 SALES 本人儲位（ADMIN 兩邊都放行）
+        if (UserContextHolder.hasRole(request.branchCode(), "LEADER")) {
+            dataScopeGuard.assertBranchAccess(request.branchCode(), "LEADER");
+        } else {
+            dataScopeGuard.assertLocationOwnership(request.locationCode());
+        }
+
         LocalDate purchaseDate = request.purchaseDate();
         LocalDate today = LocalDate.now(clock);
         // trust boundary：前端 date picker 可繞過，此為最後防線；D+2 下限是 lead time 硬規則

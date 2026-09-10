@@ -52,7 +52,7 @@ cd frontend && npm run dev      # 前端
 
 | 階段 | 目標 | 完成定義 |
 |------|------|---------|
-| **1. 補完主線** | ~~SRO 領貨~~、~~`@RequireRole` 上到全部端點~~（已完成）、資料級授權（業務員只能動自己的單） | 訂貨→配貨→領貨一條龍整合測試綠燈 |
+| **1. 補完主線** | ~~SRO 領貨~~、~~`@RequireRole` 上到全部端點~~、~~資料級授權（業務員只能動自己的單）~~（已完成） | 訂貨→配貨→領貨一條龍整合測試綠燈 |
 | **2. 最小前端** | Branch 頁手寫，其餘代工；Element Plus 導入 | demo 主路徑可用滑鼠走完，401/409 體驗正確 |
 | **3. 一鍵部署** | Docker multi-stage（前後端同 image）、non-root、healthcheck；Jenkins 前端 build stage | `docker-compose up` 一鍵可用 |
 | **4. 驗證與觀測** | 併發整合測試（Testcontainers 真並發）、Redis INCR 版取號＋兩方案壓測、效能 baseline → 改 → 再測 | 帶數據的壓測報告；沒有 baseline 的優化視為沒做 |

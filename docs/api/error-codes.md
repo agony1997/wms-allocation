@@ -18,6 +18,8 @@
 |------|------|------|---------|------------|
 | `RESOURCE_NOT_FOUND` | 404 | 找不到指定資源 | 依 id / code 查詢或操作，目標不存在；或請求打到不存在的端點/路徑 | 否（看 404 + message 即可） |
 | `VALIDATION_ERROR` | 400 | 欄位驗證失敗 | `@Valid` 檢查未通過（`message` 含各欄位錯誤）；或 Spring MVC 參數綁定失敗（缺少必要 `@RequestParam`、型別不符等）；或 `@Valid` 管不到的跨欄位形狀錯誤（如收貨明細 `itemNo` 重複、缺少實收數量） | 視情況（可標紅對應欄位） |
+| `BRANCH_ACCESS_DENIED` | 403 | 無此營業所的操作權限 | Service 層資料範圍檢查（`DataScopeGuard.assertBranchAccess`）：`branchCode` 不在使用者 token 的 `branchRoles` 內，或該所底下沒有此操作所需角色（ADMIN 不受此限） | 否（顯示 message 即可） |
+| `LOCATION_ACCESS_DENIED` | 403 | 無此儲位的操作權限 | Service 層資料範圍檢查（`DataScopeGuard.assertLocationOwnership`）：儲位的 `userCode` 不是目前登入者本人（ADMIN 不受此限） | 否（顯示 message 即可） |
 | `INTERNAL_SERVER_ERROR` | 500 | 未預期的系統錯誤 | 兜底，不屬於上述任何情境 | 否（顯示通用錯誤畫面） |
 
 ## 領域錯誤碼
@@ -116,3 +118,4 @@
 | 2026-08-26 | `VALIDATION_ERROR` 觸發情境擴充：`POST /api/factory-delivery-orders/actions/receive` 的明細 `itemNo` 重複，原先由 `Collectors.toMap` 拋 `IllegalStateException` 誤回 500，改為在碰 DB 前擋下回 400，未新增 code | 無（既有碼，僅新增觸發途徑） |
 | 2026-08-28 | auth 新增 `AUTH_NO_ROLE_ASSIGNED`（403），對應 POST /api/auth/login 帳密正確但無任何營業所角色關聯。同批 `LoginResponse` 破壞性變更：移除單值 `role` 與 `branchCode`，改回 `branchRoles`（`{branchCode: [roleCode...]}`） | 新增碼，顯示 message 即可；**回應結構變更，前端 `stores/auth.js` 須同步** |
 | 2026-09-07 | 58 支端點掛上 `@RequireRole`，未新增 code：攔截器的**裸 403（無 body）由「理論上可能」變成實際會發生**（例如 SALES 打凍結端點）。「使用約定」新增一條說明兩種無 body 的 401／403 | **前端須補「403 且無 body → 權限不足」的處理**（目前只處理 401 無 body） |
+| 2026-09-10 | 通用碼新增 `BRANCH_ACCESS_DENIED`（403）、`LOCATION_ACCESS_DENIED`（403），對應 Service 層資料範圍授權（`DataScopeGuard.assertBranchAccess`／`assertLocationOwnership`）首次落地，擋掉 branchCode／locationCode 未驗證即可跨所跨人存取的 IDOR | 新增碼，顯示 message 即可；與 `@RequireRole` 的裸 403 不同，這兩碼**有**結構化 body |

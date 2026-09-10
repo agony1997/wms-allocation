@@ -20,6 +20,7 @@ import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.AllocationOrderMapper;
 import com.agony.wmsallocation.mapper.SalesPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.*;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,6 +63,7 @@ class AllocationServiceTest {
     @Mock private InventoryService inventoryService;
     @Mock private AllocationOrderMapper mapper;
     @Mock private SalesPurchaseOrderMapper spodMapper;
+    @Mock private DataScopeGuard dataScopeGuard;
 
     @InjectMocks
     private AllocationService allocationService;
@@ -407,5 +409,31 @@ class AllocationServiceTest {
         List<AllocationOrderDetailDto> result = allocationService.executeAllocation(BRANCH, ALLOCATION_DATE);
 
         assertThat(result).containsExactly(mappedDto);
+    }
+
+    @Test
+    @DisplayName("executeAllocation - 資料範圍檢查不通過時應中止，不進入配貨邏輯")
+    void executeAllocation_whenBranchAccessDenied_throwsAndSkipsAllocation() {
+        doThrow(new BusinessRuleException("無此營業所的操作權限：branchCode=" + BRANCH, ErrorCode.BRANCH_ACCESS_DENIED))
+                .when(dataScopeGuard).assertBranchAccess(BRANCH, "WAREHOUSE");
+
+        assertThatThrownBy(() -> allocationService.executeAllocation(BRANCH, ALLOCATION_DATE))
+                .isInstanceOfSatisfying(BusinessRuleException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.BRANCH_ACCESS_DENIED));
+
+        verify(bpoRepo, never()).findByBranchCodeAndStatusIn(any(), any());
+    }
+
+    @Test
+    @DisplayName("executeAllocation - 資料範圍檢查通過時應正常呼叫並放行")
+    void executeAllocation_whenBranchAccessGranted_proceeds() {
+        when(bpoRepo.findByBranchCodeAndStatusIn(BRANCH, Set.of(BpoStatus.RECEIVED, BpoStatus.DISCREPANCY)))
+                .thenReturn(List.of());
+        when(mapper.toDetailDtoList(List.of())).thenReturn(List.of());
+
+        List<AllocationOrderDetailDto> result = allocationService.executeAllocation(BRANCH, ALLOCATION_DATE);
+
+        assertThat(result).isEmpty();
+        verify(dataScopeGuard).assertBranchAccess(BRANCH, "WAREHOUSE");
     }
 }

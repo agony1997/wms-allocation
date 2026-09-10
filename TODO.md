@@ -10,23 +10,25 @@
 
 ## 現在在哪
 
-主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步中的**第 1、2、3 步已完成**
-（多角色改造 + 移除 `AuthUser.branchCode` + 58 支端點掛上 `@RequireRole`），測試 196 綠。
+主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步**已全部完成**
+（多角色改造 + 移除 `AuthUser.branchCode` + 58 支端點掛上 `@RequireRole` + 資料級授權
+`DataScopeGuard`），測試 225 綠。
 
 ```
+（本次資料級授權尚未 commit，commit 後補上 hash）
+e4fad6c feat: 全部端點掛上 @RequireRole，並收斂 actuator 曝光面
 ea4ef99 feat: 支援一人多營業所多角色，移除主要營業所欄位
 259f856 docs: 新增 TODO.md 追蹤授權這條線的待辦
-dd8502e docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時效
 ```
 
-目前在**授權**這條線上，分四步，做完才輪到前端。**下一步是第 4 步「資料級授權」**——
-那才是把 IDOR 關掉的一步，第 3 步只擋工種、不擋「動誰的資料」。
+**授權這條線四步全部做完**，下一步輪到前端 demo 主路徑（見下方「更遠的路線」第 3 項）。
 
-**第 3 步留了一件事給你自己做**：反射守門測試（見下方「✅ 已完成：掛 `@RequireRole` 到端點」
+**仍留著給你自己做的一件事**：反射守門測試（見下方「✅ 已完成：掛 `@RequireRole` 到端點」
 的「待你寫的守門測試」段），對照表已經列好。在它寫出來之前，58 支標註沒有任何自動驗證。
+這件事跟資料級授權互相獨立，不卡對方進度。
 
 > 跑測試：`./mvnw.cmd test`
-> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 196 支照跑。
+> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 225 支照跑。
 
 ---
 
@@ -207,35 +209,41 @@ dd8502e docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時�
 > 且必須排除 `/error`（否則未登入者的 404 會變 401）。目前所有端點都在 `/api/` 底下，
 > 等真的出現非 `/api/` 路徑（webhook、SSE）再改。
 
-## 接著（可以交給 Claude）
+## ✅ 已完成：資料級授權（2026-09-10）
 
-### 4. 資料級授權
-
-原則已定：**不信任前端**。呼叫端送來的 `branchCode`／`locationCode` 一律視為不可信輸入，
+原則：**不信任前端**。呼叫端送來的 `branchCode`／`locationCode` 一律視為不可信輸入，
 與 token 身分不符即拒絕。三級範圍與落點（Service 層）見 `User.md`「資料範圍授權」段。
 
-現況是 19 支端點的 branchCode／locationCode 完全由呼叫端自由指定，
-任何登入者都能讀別的營業所、別的業務員的單——這是 IDOR，是洞不是缺功能。
+**這一步關的是 IDOR**：第 3 步的 `@RequireRole` 只判定「在任一營業所有此角色」，
+營業所比對完全不在攔截器（2026-08-28 定案），改之前任何登入者都能讀別的營業所、
+別的業務員的單。
 
-**這一步是必要的，不是加分項**——因為第 3 步的 `@RequireRole` 只判定「在任一營業所有此角色」，
-營業所比對完全不在攔截器（2026-08-28 定案，理由與端點盤點見 `User.md`）。
+### 落地方式
 
-收斂成兩個入口，別每支 Service 各寫各的 `if`：
+新增 `security.DataScopeGuard`（`@Component`，注入 `LocationRepo`），收斂成兩個入口：
 
-- `assertBranchAccess(branchCode, 需要的角色)`——驗 branchCode 在 token 的 keys 裡，
-  **且該所底下有需要的角色**（第二點最容易漏，漏了等於只驗了一半）
+- `assertBranchAccess(branchCode, 需要的角色…)`——驗 branchCode 在 token 的 keys 裡，
+  **且該所底下有需要的角色**
 - `assertLocationOwnership(locationCode)`——驗 `Location.userCode` = 當前登入者
-- **ADMIN 一律放行，兩者都不比對**（全系統唯一的角色特例，見 `User.md`）。
-  前端選單也要對應——ADMIN 列全部營業所，須另呼叫 `GET /api/branches`。
-  兩邊要一起做：只做前端會讓 ADMIN 選了卻被擋，只做後端則他選不到
+- **ADMIN 一律放行，兩者都不比對**（靠新增的 `UserContextHolder.hasRoleInAnyBranch("ADMIN")`）
 
-每支需要範圍檢查的 Service 方法，都要有一支「別所／別人的儲位打進來要被擋」的測試。
+放在 `security/` 而非塞進 `UserContextHolder`（會混掉純 ThreadLocal 容器與查 DB 的職責）
+或另立 `service/` 包（會建立目前不存在的 Service 依賴 Service 模式）。
+
+新增 `ErrorCode.BRANCH_ACCESS_DENIED`／`LOCATION_ACCESS_DENIED`（皆 403，已同步
+`error-codes.md`），六個呼叫點：`BranchPurchaseService`（freeze/unfreeze/confirm/adjust）、
+`BranchPurchaseOrderService.aggregate`、`AllocationService.executeAllocation`、
+`FactoryDeliveryOrderService.receive`、`SalesReceiveOrderService.receive`、
+`SalesPurchaseService.save`（依呼叫者是該所 LEADER 或 SALES 本人分流）。
+
+前端選單對應（ADMIN 列全部營業所，須另呼叫 `GET /api/branches`）**尚未做**，
+留給前端 demo 那個階段一併處理。
 
 ---
 
 ## 待拍板的三個小決策
 
-做第 3、4 步時會遇到，先想好可以省一輪。
+授權四步做完後仍未拍板，遇到時先想好可以省一輪。
 
 **D1｜資料一致性守門要 500 還是走 `BusinessException`**
 `FactoryDeliveryOrderService:144` 拋 `IllegalStateException`（→500，有測試釘住）；
@@ -270,8 +278,8 @@ dd8502e docs: 補齊權限矩陣、定案資料範圍授權與 token 角色時�
 ## 更遠的路線（2–3 個月版本）
 
 1. ~~SRO 領貨~~ ✅
-2. **授權**（本文件上半部）← 現在在這
-3. **前端 demo 主路徑**——最大一塊。Element Plus + 五頁：訂貨／彙總凍結／收貨／配貨／領貨。
+2. ~~**授權**（本文件上半部）~~ ✅（反射守門測試仍留給你自己寫，不卡此線）
+3. **前端 demo 主路徑** ← 現在在這。最大一塊。Element Plus + 五頁：訂貨／彙總凍結／收貨／配貨／領貨。
    重點只有一個：**配貨結果頁要讓演算法看得見**（S001 因優先度 1 先拿走效期最近那批，
    S002 只分到剩下的，數字和批號都要在畫面上）。
    每頁都要有**營業所欄位**（已定案：每頁各自的欄位，不做全域切換；一律顯示並自動帶入，

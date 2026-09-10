@@ -16,6 +16,8 @@ import com.agony.wmsallocation.repository.BranchPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.BranchPurchaseOrderRepo;
 import com.agony.wmsallocation.repository.FactoryDeliveryOrderDetailRepo;
 import com.agony.wmsallocation.repository.FactoryDeliveryOrderRepo;
+import com.agony.wmsallocation.repository.LocationRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import com.agony.wmsallocation.security.UserContextHolder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +30,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.*;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @ExtendWith(MockitoExtension.class)
 class FactoryDeliveryOrderServiceTest {
@@ -49,13 +53,15 @@ class FactoryDeliveryOrderServiceTest {
     @Mock SequenceService sequenceService;
     @Mock FactoryDeliveryOrderMapper mapper;
     @Mock InventoryService inventoryService;
+    @Mock LocationRepo locationRepo;
 
     private FactoryDeliveryOrderService service;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-08T10:00:00Z"), ZoneOffset.UTC);
-        service = new FactoryDeliveryOrderService(bpoRepo, bpodRepo, fdoRepo, fdodRepo, sequenceService, mapper, inventoryService, clock);
+        service = new FactoryDeliveryOrderService(bpoRepo, bpodRepo, fdoRepo, fdodRepo, sequenceService, mapper,
+                inventoryService, clock, new DataScopeGuard(locationRepo));
     }
 
     @Test
@@ -146,40 +152,91 @@ class FactoryDeliveryOrderServiceTest {
 
     @Test
     void receive_whenStatusNotPending_throwsAndDoesNotWrite() {
-        Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.RECEIVED)));
+        try {
+            UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+            Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.RECEIVED)));
 
-        ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
-                new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
+            ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
+                    new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
 
-        Assertions.assertThrows(BusinessException.class, () -> service.receive(request));
+            Assertions.assertThrows(BusinessException.class, () -> service.receive(request));
 
-        Mockito.verify(fdoRepo, Mockito.never()).save(Mockito.any());
-        Mockito.verify(inventoryService, Mockito.never())
-                .receive(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
+            Mockito.verify(fdoRepo, Mockito.never()).save(Mockito.any());
+            Mockito.verify(inventoryService, Mockito.never())
+                    .receive(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
+        } finally {
+            UserContextHolder.clear();
+        }
     }
 
     @Test
     void receive_whenItemNoMissingFromRequest_throwsAndDoesNotWrite() {
-        Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
-        Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(
-                fdod(1, "P001", 8),
-                fdod(2, "P002", 5)));
+        try {
+            UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+            Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
+            Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(
+                    fdod(1, "P001", 8),
+                    fdod(2, "P002", 5)));
 
-        // 只帶 itemNo=1，漏了 itemNo=2
+            // 只帶 itemNo=1，漏了 itemNo=2
+            ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
+                    new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
+
+            Assertions.assertThrows(BusinessException.class, () -> service.receive(request));
+
+            Mockito.verify(fdodRepo, Mockito.never()).saveAll(Mockito.any());
+            Mockito.verify(fdoRepo, Mockito.never()).save(Mockito.any());
+            Mockito.verify(bpoRepo, Mockito.never()).save(Mockito.any());
+        } finally {
+            UserContextHolder.clear();
+        }
+    }
+
+    @Test
+    void receive_whenNotWarehouseOfBranch_throwsAccessDenied() {
+        Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
+
         ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
                 new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
 
-        Assertions.assertThrows(BusinessException.class, () -> service.receive(request));
+        BusinessException ex = Assertions.assertThrows(BusinessException.class, () -> service.receive(request));
 
-        Mockito.verify(fdodRepo, Mockito.never()).saveAll(Mockito.any());
-        Mockito.verify(fdoRepo, Mockito.never()).save(Mockito.any());
-        Mockito.verify(bpoRepo, Mockito.never()).save(Mockito.any());
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verify(fdodRepo, Mockito.never()).findByFdoNoOrderByItemNo(Mockito.any());
+    }
+
+    @Test
+    void receive_whenAdminOfOtherBranch_isAllowed() {
+        try {
+            UserContextHolder.setUserCode("U001");
+            UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+
+            Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
+            Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(
+                    fdod(1, "P001", 8),
+                    fdod(2, "P002", 5)));
+            Mockito.when(bpoRepo.findByBpoNo(BPO_NO)).thenReturn(Optional.of(bpo()));
+            Mockito.when(fdoRepo.save(Mockito.any())).thenAnswer(inv -> inv.getArgument(0));
+            Mockito.when(mapper.toDto(Mockito.any())).thenReturn(FactoryDeliveryOrderDto.builder().build());
+            Mockito.when(mapper.toDetailDtoList(Mockito.anyList())).thenReturn(List.of());
+
+            ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
+                    new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8),
+                    new ReceiveFactoryDeliveryOrderRequest.Detail(2, 5));
+
+            Assertions.assertDoesNotThrow(() -> service.receive(request));
+
+            Mockito.verify(fdoRepo).save(Mockito.any());
+        } finally {
+            UserContextHolder.clear();
+        }
     }
 
     @Test
     void receive_whenAllQtyMatch_setsReceivedAndSyncsUpstream() {
         try {
             UserContextHolder.setUserCode("U001");
+            UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
 
             Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
             Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(
@@ -218,6 +275,7 @@ class FactoryDeliveryOrderServiceTest {
     void receive_whenAnyQtyMismatch_setsDiscrepancyAndSyncsUpstream() {
         try {
             UserContextHolder.setUserCode("U001");
+            UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
 
             Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
             Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(
@@ -253,15 +311,20 @@ class FactoryDeliveryOrderServiceTest {
 
     @Test
     void receive_whenUpstreamBpoNotFound_throwsIllegalStateException() {
-        Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
-        Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(fdod(1, "P001", 8)));
-        Mockito.when(fdoRepo.save(Mockito.any())).thenAnswer(inv -> inv.getArgument(0));
-        Mockito.when(bpoRepo.findByBpoNo(BPO_NO)).thenReturn(Optional.empty());
+        try {
+            UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+            Mockito.when(fdoRepo.findByFdoNo(FDO_NO)).thenReturn(Optional.of(fdo(FactoryDeliveryStatus.PENDING)));
+            Mockito.when(fdodRepo.findByFdoNoOrderByItemNo(FDO_NO)).thenReturn(List.of(fdod(1, "P001", 8)));
+            Mockito.when(fdoRepo.save(Mockito.any())).thenAnswer(inv -> inv.getArgument(0));
+            Mockito.when(bpoRepo.findByBpoNo(BPO_NO)).thenReturn(Optional.empty());
 
-        ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
-                new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
+            ReceiveFactoryDeliveryOrderRequest request = receiveRequest(
+                    new ReceiveFactoryDeliveryOrderRequest.Detail(1, 8));
 
-        Assertions.assertThrows(IllegalStateException.class, () -> service.receive(request));
+            Assertions.assertThrows(IllegalStateException.class, () -> service.receive(request));
+        } finally {
+            UserContextHolder.clear();
+        }
     }
 
     @Test

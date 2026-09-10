@@ -12,6 +12,7 @@ import com.agony.wmsallocation.exception.BusinessRuleException;
 import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.BranchPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.*;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +37,11 @@ public class BranchPurchaseOrderService {
     private final BranchPurchaseOrderDetailRepo bpodRepo;
     private final SequenceService sequenceService;
     private final BranchPurchaseOrderMapper mapper;
+    private final DataScopeGuard dataScopeGuard;
 
     @Transactional
     public List<BranchPurchaseOrderDto> aggregate(String branchCode, LocalDate purchaseDate) {
+        dataScopeGuard.assertBranchAccess(branchCode, "LEADER", "WAREHOUSE");
         BranchPurchaseFrozen bpf = bpfRepo.findByBranchCodeAndPurchaseDate(branchCode, purchaseDate)
                 .orElseThrow(() -> new BusinessRuleException("尚未凍結，無法彙總", ErrorCode.RESOURCE_NOT_FOUND));
         if (bpf.getStatus() != FrozenStatus.CONFIRMED) {

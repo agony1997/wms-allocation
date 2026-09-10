@@ -9,11 +9,17 @@ import com.agony.wmsallocation.entity.purchase.SalesPurchaseOrderDetail;
 import com.agony.wmsallocation.entity.purchase.enums.FrozenStatus;
 import com.agony.wmsallocation.entity.purchase.enums.SalesOrderDetailStatus;
 import com.agony.wmsallocation.entity.sequence.enums.SequenceType;
+import com.agony.wmsallocation.entity.branch.Location;
 import com.agony.wmsallocation.exception.BusinessException;
+import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.SalesPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.BranchPurchaseFrozenRepo;
+import com.agony.wmsallocation.repository.LocationRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
+import com.agony.wmsallocation.security.UserContextHolder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +35,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @ExtendWith(MockitoExtension.class)
 class SalesPurchaseServiceTest {
@@ -42,13 +50,22 @@ class SalesPurchaseServiceTest {
     @Mock BranchPurchaseFrozenRepo bpfRepo;
     @Mock SequenceService sequenceService;
     @Mock SalesPurchaseOrderMapper mapper;
+    @Mock LocationRepo locationRepo;
 
     private SalesPurchaseService service;
 
     @BeforeEach
     void setUp() {
         Clock fixed = Clock.fixed(TODAY.atStartOfDay(ZONE).toInstant(), ZONE);
-        service = new SalesPurchaseService(spoRepo, spodRepo, bpfRepo, sequenceService, mapper, fixed);
+        service = new SalesPurchaseService(spoRepo, spodRepo, bpfRepo, sequenceService, mapper, fixed,
+                new DataScopeGuard(locationRepo));
+        // 預設操作者在 B01 具備 LEADER，讓既有案例不受新加的資料範圍檢查影響
+        UserContextHolder.setBranchRoles(Map.of("B01", Set.of("LEADER")));
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserContextHolder.clear();
     }
 
     // 合法訂貨日為 D+2 ~ D+9；區間外一律拒。此處只釘拒絕側，
@@ -184,6 +201,77 @@ class SalesPurchaseServiceTest {
         SalesPurchaseOrderDto dto = service.find("B01", "L01", date);
 
         Assertions.assertFalse(dto.isEditable());
+    }
+
+    // ── 資料範圍授權：LEADER 走 assertBranchAccess，SALES 走 assertLocationOwnership ──
+
+    // 該所 LEADER 代業務員下單：已由上方所有 happy path 測試（@BeforeEach 預設 LEADER）覆蓋，
+    // 此處單獨補一支具名案例，對應規格「LEADER 可代任一儲位下單」
+
+    @Test
+    void save_whenLeaderOfBranch_isAllowed() {
+        LocalDate date = TODAY.plusDays(2);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate("B01", date)).thenReturn(Optional.empty());
+        Mockito.when(spoRepo.findByBranchCodeAndLocationCodeAndPurchaseDate("B01", "L01", date))
+                .thenReturn(Optional.empty());
+        Mockito.when(sequenceService.generateSequence(SequenceType.SPO, date)).thenReturn("SPO-20260704-001");
+        Mockito.when(spoRepo.save(Mockito.any(SalesPurchaseOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(mapper.toDto(Mockito.any(SalesPurchaseOrder.class))).thenReturn(SalesPurchaseOrderDto.builder().build());
+
+        Assertions.assertDoesNotThrow(() -> service.save(requestOn(date)));
+    }
+
+    @Test
+    void save_whenSalesOwnsLocation_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of());   // 無 LEADER，走 SALES 儲位分流
+        UserContextHolder.setUserCode("SALES01");
+        Location location = new Location();
+        location.setLocationCode("L01");
+        location.setUserCode("SALES01");
+        Mockito.when(locationRepo.findByLocationCode("L01")).thenReturn(Optional.of(location));
+
+        LocalDate date = TODAY.plusDays(2);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate("B01", date)).thenReturn(Optional.empty());
+        Mockito.when(spoRepo.findByBranchCodeAndLocationCodeAndPurchaseDate("B01", "L01", date))
+                .thenReturn(Optional.empty());
+        Mockito.when(sequenceService.generateSequence(SequenceType.SPO, date)).thenReturn("SPO-20260704-001");
+        Mockito.when(spoRepo.save(Mockito.any(SalesPurchaseOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(mapper.toDto(Mockito.any(SalesPurchaseOrder.class))).thenReturn(SalesPurchaseOrderDto.builder().build());
+
+        Assertions.assertDoesNotThrow(() -> service.save(requestOn(date)));
+    }
+
+    @Test
+    void save_whenSalesTargetsOthersLocation_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of());   // 無 LEADER，走 SALES 儲位分流
+        UserContextHolder.setUserCode("SALES01");
+        Location location = new Location();
+        location.setLocationCode("L01");
+        location.setUserCode("OTHER_USER");
+        Mockito.when(locationRepo.findByLocationCode("L01")).thenReturn(Optional.of(location));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class,
+                () -> service.save(requestOn(TODAY.plusDays(2))));
+
+        Assertions.assertEquals(ErrorCode.LOCATION_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo, spoRepo, spodRepo);
+    }
+
+    @Test
+    void save_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));   // 非該所 LEADER，走 SALES 分流；ADMIN 在 guard 內直接放行
+
+        LocalDate date = TODAY.plusDays(2);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate("B01", date)).thenReturn(Optional.empty());
+        Mockito.when(spoRepo.findByBranchCodeAndLocationCodeAndPurchaseDate("B01", "L01", date))
+                .thenReturn(Optional.empty());
+        Mockito.when(sequenceService.generateSequence(SequenceType.SPO, date)).thenReturn("SPO-20260704-001");
+        Mockito.when(spoRepo.save(Mockito.any(SalesPurchaseOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(mapper.toDto(Mockito.any(SalesPurchaseOrder.class))).thenReturn(SalesPurchaseOrderDto.builder().build());
+
+        // ADMIN 一律放行，assertLocationOwnership 內部略過檢查，不需 mock locationRepo
+        Assertions.assertDoesNotThrow(() -> service.save(requestOn(date)));
+        Mockito.verifyNoInteractions(locationRepo);
     }
 
     private SavePurchaseRequest requestOn(LocalDate purchaseDate) {

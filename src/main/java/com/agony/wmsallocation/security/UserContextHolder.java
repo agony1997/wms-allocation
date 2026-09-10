@@ -42,6 +42,11 @@ public class UserContextHolder {
         return getBranchRoles().getOrDefault(branchCode, Set.of()).contains(roleCode);
     }
 
+    // ADMIN 的資料範圍是「不限」，不綁定特定營業所，故用「任一營業所」而非 hasRole(branchCode, ...) 判斷
+    public static boolean hasRoleInAnyBranch(String roleCode) {
+        return getBranchRoles().values().stream().anyMatch(roles -> roles.contains(roleCode));
+    }
+
     public static void clear() {
         userCodeHolder.remove();
         branchRolesHolder.remove();

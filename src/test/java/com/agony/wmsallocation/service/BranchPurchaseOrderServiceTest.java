@@ -9,8 +9,12 @@ import com.agony.wmsallocation.entity.purchase.enums.FrozenStatus;
 import com.agony.wmsallocation.entity.purchase.enums.SalesOrderDetailStatus;
 import com.agony.wmsallocation.entity.sequence.enums.SequenceType;
 import com.agony.wmsallocation.exception.BusinessException;
+import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.BranchPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.*;
+import com.agony.wmsallocation.security.DataScopeGuard;
+import com.agony.wmsallocation.security.UserContextHolder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +26,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @ExtendWith(MockitoExtension.class)
 class BranchPurchaseOrderServiceTest {
@@ -39,13 +45,20 @@ class BranchPurchaseOrderServiceTest {
     @Mock BranchPurchaseOrderDetailRepo bpodRepo;
     @Mock SequenceService sequenceService;
     @Mock BranchPurchaseOrderMapper mapper;
+    @Mock LocationRepo locationRepo;
 
     private BranchPurchaseOrderService service;
 
     @BeforeEach
     void setUp() {
         service = new BranchPurchaseOrderService(bpfRepo, spoRepo, spodRepo, productFactoryRepo, productRepo,
-                bpoRepo, bpodRepo, sequenceService, mapper);
+                bpoRepo, bpodRepo, sequenceService, mapper, new DataScopeGuard(locationRepo));
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserContextHolder.clear();
     }
 
     @Test
@@ -158,6 +171,26 @@ class BranchPurchaseOrderServiceTest {
 
         Mockito.verify(bpoRepo, Mockito.never()).save(Mockito.any());
         Mockito.verify(sequenceService, Mockito.never()).generateSequence(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void aggregate_whenNotLeaderOrWarehouseOfBranch_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("SALES")));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class, () -> service.aggregate(BRANCH, DATE));
+
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo);
+    }
+
+    @Test
+    void aggregate_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(Optional.of(confirmedBpf()));
+        // purchaseNos 為空時 aggregate() 不會呼叫 spodRepo（見第 55-57 行的短路），故不需 stub
+        Mockito.when(spoRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(List.of());
+
+        Assertions.assertDoesNotThrow(() -> service.aggregate(BRANCH, DATE));
     }
 
     private BranchPurchaseFrozen confirmedBpf() {

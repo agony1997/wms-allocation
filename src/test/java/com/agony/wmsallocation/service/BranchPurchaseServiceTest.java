@@ -10,11 +10,14 @@ import com.agony.wmsallocation.entity.purchase.SalesPurchaseOrderDetail;
 import com.agony.wmsallocation.entity.purchase.enums.FrozenStatus;
 import com.agony.wmsallocation.entity.purchase.enums.SalesOrderDetailStatus;
 import com.agony.wmsallocation.exception.BusinessException;
+import com.agony.wmsallocation.exception.ErrorCode;
 import com.agony.wmsallocation.mapper.SalesPurchaseOrderMapper;
 import com.agony.wmsallocation.repository.BranchPurchaseFrozenRepo;
+import com.agony.wmsallocation.repository.LocationRepo;
 import com.agony.wmsallocation.repository.ProductRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesPurchaseOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import com.agony.wmsallocation.security.UserContextHolder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -31,7 +34,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @ExtendWith(MockitoExtension.class)
 class BranchPurchaseServiceTest {
@@ -45,15 +50,19 @@ class BranchPurchaseServiceTest {
     @Mock SalesPurchaseOrderDetailRepo spodRepo;
     @Mock ProductRepo productRepo;
     @Mock SalesPurchaseOrderMapper mapper;
+    @Mock LocationRepo locationRepo;
 
     private BranchPurchaseService service;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-06T09:00:00Z"), ZoneOffset.UTC);
-        service = new BranchPurchaseService(bpfRepo, spoRepo, spodRepo, productRepo, mapper, clock);
+        service = new BranchPurchaseService(bpfRepo, spoRepo, spodRepo, productRepo, mapper, clock,
+                new DataScopeGuard(locationRepo));
         // freeze/confirm 的操作者取自登入身份而非參數，模擬 JwtInterceptor 已寫入 ThreadLocal
         UserContextHolder.setUserCode(OPERATOR);
+        // 預設操作者在 BRANCH 具備 LEADER，讓既有案例不受新加的資料範圍檢查影響
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("LEADER")));
     }
 
     // ThreadLocal 不清會殘留到下一個重用此執行緒的測試
@@ -270,6 +279,95 @@ class BranchPurchaseServiceTest {
         service.adjustConfirmedQty(BRANCH, DATE, requestOf("L99", "P001", "箱", 10));
 
         Mockito.verifyNoInteractions(spodRepo);
+    }
+
+    // ── 資料範圍授權：assertBranchAccess(branchCode, "LEADER") ──
+
+    @Test
+    void freeze_whenNotLeaderOfBranch_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class, () -> service.freeze(BRANCH, DATE));
+
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo);
+    }
+
+    @Test
+    void freeze_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(Optional.empty());
+
+        Assertions.assertDoesNotThrow(() -> service.freeze(BRANCH, DATE));
+
+        Mockito.verify(bpfRepo).save(Mockito.any());
+    }
+
+    @Test
+    void unfreeze_whenNotLeaderOfBranch_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class, () -> service.unfreeze(BRANCH, DATE));
+
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo);
+    }
+
+    @Test
+    void unfreeze_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        BranchPurchaseFrozen bpf = new BranchPurchaseFrozen();
+        bpf.setStatus(FrozenStatus.FROZEN);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(Optional.of(bpf));
+
+        Assertions.assertDoesNotThrow(() -> service.unfreeze(BRANCH, DATE));
+
+        Mockito.verify(bpfRepo).delete(bpf);
+    }
+
+    @Test
+    void confirm_whenNotLeaderOfBranch_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class, () -> service.confirm(BRANCH, DATE));
+
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo);
+    }
+
+    @Test
+    void confirm_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        BranchPurchaseFrozen bpf = new BranchPurchaseFrozen();
+        bpf.setStatus(FrozenStatus.FROZEN);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(Optional.of(bpf));
+
+        Assertions.assertDoesNotThrow(() -> service.confirm(BRANCH, DATE));
+
+        Mockito.verify(bpfRepo).save(bpf);
+    }
+
+    @Test
+    void adjustConfirmedQty_whenNotLeaderOfBranch_throwsAccessDenied() {
+        UserContextHolder.setBranchRoles(Map.of(BRANCH, Set.of("WAREHOUSE")));
+
+        BusinessException ex = Assertions.assertThrows(BusinessException.class,
+                () -> service.adjustConfirmedQty(BRANCH, DATE, requestOf("L01", "P001", "箱", 10)));
+
+        Assertions.assertEquals(ErrorCode.BRANCH_ACCESS_DENIED, ex.getErrorCode());
+        Mockito.verifyNoInteractions(bpfRepo);
+    }
+
+    @Test
+    void adjustConfirmedQty_whenAdminOfOtherBranch_isAllowed() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        BranchPurchaseFrozen bpf = new BranchPurchaseFrozen();
+        bpf.setStatus(FrozenStatus.FROZEN);
+        Mockito.when(bpfRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(Optional.of(bpf));
+        Mockito.when(spoRepo.findByBranchCodeAndPurchaseDate(BRANCH, DATE)).thenReturn(List.of());
+
+        Assertions.assertDoesNotThrow(
+                () -> service.adjustConfirmedQty(BRANCH, DATE, requestOf("L99", "P001", "箱", 10)));
     }
 
     private SalesPurchaseOrder spoOf(String purchaseNo, String locationCode) {

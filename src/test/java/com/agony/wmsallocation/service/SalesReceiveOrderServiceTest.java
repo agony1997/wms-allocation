@@ -18,6 +18,9 @@ import com.agony.wmsallocation.repository.AllocationOrderRepo;
 import com.agony.wmsallocation.repository.LocationRepo;
 import com.agony.wmsallocation.repository.SalesReceiveOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesReceiveOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
+import com.agony.wmsallocation.security.UserContextHolder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +34,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +65,7 @@ class SalesReceiveOrderServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 20);
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-20T01:00:00Z"), ZoneOffset.UTC);
     private static final String RECEIVE_NO = "SRO-20260720-001";
+    private static final String OPERATOR = "U001";
 
     @Mock private AllocationOrderRepo aoRepo;
     @Mock private AllocationOrderDetailRepo aodRepo;
@@ -76,7 +82,14 @@ class SalesReceiveOrderServiceTest {
     @BeforeEach
     void setUp() {
         service = new SalesReceiveOrderService(aoRepo, aodRepo, sroRepo, srodRepo, locationRepo,
-                sequenceService, inventoryService, mapper, allocationOrderMapper, FIXED_CLOCK);
+                sequenceService, inventoryService, mapper, allocationOrderMapper, FIXED_CLOCK,
+                new DataScopeGuard(locationRepo));
+        UserContextHolder.setUserCode(OPERATOR);
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserContextHolder.clear();
     }
 
     private AllocationOrder ao(String allocationNo) {
@@ -113,12 +126,14 @@ class SalesReceiveOrderServiceTest {
         location.setLocationCode(LOCATION);
         location.setBranchCode(BRANCH);
         location.setLocationType(LocationType.CAR);
+        location.setUserCode(OPERATOR);
         when(locationRepo.findByLocationCode(LOCATION)).thenReturn(Optional.of(location));
     }
 
     @Test
-    @DisplayName("無待領明細 - 應冪等返回，不取號不建單，也不必反查儲位")
+    @DisplayName("無待領明細 - 應冪等返回，不取號不建單")
     void receive_whenNothingPending_returnsEmptyWithoutCreating() {
+        mockLocation();   // 資料範圍檢查（assertLocationOwnership）先於待領檢查執行，故仍需反查儲位
         mockPending(List.of());
 
         List<SalesReceiveOrderDetailDto> result = service.receive(LOCATION);
@@ -126,13 +141,14 @@ class SalesReceiveOrderServiceTest {
         assertThat(result).isEmpty();
         verify(sequenceService, never()).generateSequence(any(), any());
         verify(sroRepo, never()).save(any());
-        verifyNoInteractions(inventoryService, locationRepo);
+        verifyNoInteractions(inventoryService);
     }
 
     @Test
     @DisplayName("儲位主檔查無資料 - 應拋 RESOURCE_NOT_FOUND，不得建單")
     void receive_whenLocationNotFound_throwsAndCreatesNothing() {
-        mockPending(List.of(aod("AO-20260720-001", 1, "P001", "BATCH01", 10)));
+        // 資料範圍檢查（assertLocationOwnership）先於待領檢查執行且會反查同一個儲位，
+        // 查無儲位在此就會中止，pending 明細不會被讀到，故不再 stub aodRepo
         when(locationRepo.findByLocationCode(LOCATION)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.receive(LOCATION))
@@ -243,5 +259,37 @@ class SalesReceiveOrderServiceTest {
 
         assertThat(ao.getStatus()).isEqualTo(AllocationStatus.RECEIVED);
         verify(aoRepo).save(ao);
+    }
+
+    @Test
+    @DisplayName("儲位非本人所有 - 應拋 LOCATION_ACCESS_DENIED，不得建單")
+    void receive_whenNotOwnLocation_throwsAccessDenied() {
+        Location location = new Location();
+        location.setLocationCode(LOCATION);
+        location.setBranchCode(BRANCH);
+        location.setLocationType(LocationType.CAR);
+        location.setUserCode("OTHER_USER");
+        when(locationRepo.findByLocationCode(LOCATION)).thenReturn(Optional.of(location));
+
+        assertThatThrownBy(() -> service.receive(LOCATION))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.LOCATION_ACCESS_DENIED);
+
+        verify(sequenceService, never()).generateSequence(any(), any());
+        verify(sroRepo, never()).save(any());
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("ADMIN 打進來 - 即使非本人儲位仍應放行")
+    void receive_whenAdmin_isAllowedEvenIfNotOwnLocation() {
+        UserContextHolder.setBranchRoles(Map.of("OTHER", Set.of("ADMIN")));
+        // ADMIN 在 assertLocationOwnership 內部直接放行，不會查 locationRepo，故不需 stub
+        mockPending(List.of());
+
+        List<SalesReceiveOrderDetailDto> result = service.receive(LOCATION);
+
+        assertThat(result).isEmpty();
     }
 }

@@ -17,6 +17,7 @@ import com.agony.wmsallocation.repository.AllocationOrderRepo;
 import com.agony.wmsallocation.repository.LocationRepo;
 import com.agony.wmsallocation.repository.SalesReceiveOrderDetailRepo;
 import com.agony.wmsallocation.repository.SalesReceiveOrderRepo;
+import com.agony.wmsallocation.security.DataScopeGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +51,7 @@ public class SalesReceiveOrderService {
     private final SalesReceiveOrderMapper mapper;
     private final AllocationOrderMapper allocationOrderMapper;
     private final Clock clock;
+    private final DataScopeGuard dataScopeGuard;
 
     /** 查詢某業務員儲位的待領明細（唯讀預覽，不上鎖）。 */
     public List<AllocationOrderDetailDto> listPending(String locationCode) {
@@ -67,6 +69,8 @@ public class SalesReceiveOrderService {
      */
     @Transactional
     public List<SalesReceiveOrderDetailDto> receive(String locationCode) {
+        dataScopeGuard.assertLocationOwnership(locationCode);
+
         // 1. 待領明細（上悲觀鎖，避免連點領兩次）
         List<AllocationOrderDetail> pending =
                 aodRepo.findForUpdateByLocationCodeAndStatusOrderByAllocationNoAscItemNoAsc(
