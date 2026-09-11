@@ -12,23 +12,21 @@
 
 主線 **訂貨 → 配貨 → 領貨** 三段後端全部完成。授權四步**已全部完成**
 （多角色改造 + 移除 `AuthUser.branchCode` + 58 支端點掛上 `@RequireRole` + 資料級授權
-`DataScopeGuard`），測試 225 綠。
+`DataScopeGuard`），測試 228 綠。
 
 ```
-（本次資料級授權尚未 commit，commit 後補上 hash）
+9d70989 feat: 新增資料級授權，補上 branchCode/locationCode 的範圍檢查
+572644d refactor: 精簡 JWT 驗證與授權模組註解，驗證失敗補上警告日誌
 e4fad6c feat: 全部端點掛上 @RequireRole，並收斂 actuator 曝光面
 ea4ef99 feat: 支援一人多營業所多角色，移除主要營業所欄位
 259f856 docs: 新增 TODO.md 追蹤授權這條線的待辦
 ```
 
-**授權這條線四步全部做完**，下一步輪到前端 demo 主路徑（見下方「更遠的路線」第 3 項）。
-
-**仍留著給你自己做的一件事**：反射守門測試（見下方「✅ 已完成：掛 `@RequireRole` 到端點」
-的「待你寫的守門測試」段），對照表已經列好。在它寫出來之前，58 支標註沒有任何自動驗證。
-這件事跟資料級授權互相獨立，不卡對方進度。
+**授權這條線四步全部做完**，守門測試（`RequireRoleCoverageTest`）也補上了，
+下一步輪到前端 demo 主路徑（見下方「更遠的路線」第 3 項）。
 
 > 跑測試：`./mvnw.cmd test`
-> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 225 支照跑。
+> `BranchRepoTest` 需要 Docker（Testcontainers）。Docker 沒開時它會 error，其餘 226 支照跑。
 
 ---
 
@@ -184,12 +182,18 @@ ea4ef99 feat: 支援一人多營業所多角色，移除主要營業所欄位
 | `SALES`, `LEADER`, `ADMIN` | `PUT /api/sales-purchase-orders`（建立 SPO） | 1 |
 | `SALES`, `ADMIN` | `POST /api/sales-receive-orders/actions/receive`（領貨） | 1 |
 
-### 待你寫的守門測試
+### ✅ 守門測試（2026-09-11，`security/RequireRoleCoverageTest`）
 
-反射掃 `controller` package 全部 `@RequestMapping` 方法，斷言：① 除 login 外每支都有
-`@RequireRole`；② 角色集合與上表一致。這是本專案第一支反射／架構測試，依「每一種新東西的第一個
-自己寫」的紀律留給你。要點：比對用 `Set` 不比陣列順序；`AuthController.login` 要當成明列的白名單
-而不是「沒有標註就跳過」，否則測試本身就 fail-open。
+反射掃 `controller` package，斷言「沒掛 `@RequireRole` 的端點集合」**等於**白名單
+`{POST /api/auth/login}`——採明列而非「沒標註就跳過」，後者會讓測試自己 fail-open。
+掃描用 `ClassPathScanningCandidateComponentProvider`（不啟 Spring context，無新依賴）；
+六種 mapping 標註靠 `AnnotatedElementUtils.findMergedAnnotation(..., RequestMapping.class)`
+攤平成一種。已實測拔掉白名單會紅，訊息直接列出端點。
+
+**原本計畫的第②項「角色集合與上表一致」刻意不做**：它擋的是「正在動權限時改錯角色」，
+那是當下盯著看的事；代價卻是把 58 筆清單再抄一份，往後每次合理改權限都要同步兩處。
+第①項擋的則是「新增端點忘了掛」——沒有任何徵兆的那種錯，而且零維護。
+上方對照表保留作為人工校對用，不進測試。
 
 ### actuator 的洞：改成不曝光，沒有改攔截範圍
 
@@ -278,7 +282,7 @@ ea4ef99 feat: 支援一人多營業所多角色，移除主要營業所欄位
 ## 更遠的路線（2–3 個月版本）
 
 1. ~~SRO 領貨~~ ✅
-2. ~~**授權**（本文件上半部）~~ ✅（反射守門測試仍留給你自己寫，不卡此線）
+2. ~~**授權**（本文件上半部）~~ ✅（含反射守門測試）
 3. **前端 demo 主路徑** ← 現在在這。最大一塊。Element Plus + 五頁：訂貨／彙總凍結／收貨／配貨／領貨。
    重點只有一個：**配貨結果頁要讓演算法看得見**（S001 因優先度 1 先拿走效期最近那批，
    S002 只分到剩下的，數字和批號都要在畫面上）。
